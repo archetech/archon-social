@@ -951,9 +951,9 @@ app.post('/api/credential/request', isAuthenticated, async (req: Request, res: R
             credentialDid = user.credentialDid;
             console.log(`Updated credential ${credentialDid} for ${user.name}`);
         } else {
-            // Issue new credential using bindCredential
+            // Issue new credential using bindCredential then issueCredential
             console.log(`Binding new credential for ${userDid}...`);
-            const credential = await keymaster.bindCredential(userDid, {
+            const boundCredential = await keymaster.bindCredential(userDid, {
                 validFrom: new Date().toISOString(),
                 claims: {
                     name: `@${user.name}`,
@@ -962,12 +962,10 @@ app.post('/api/credential/request', isAuthenticated, async (req: Request, res: R
                     credentialType: 'ArchonSocialNameCredential'
                 }
             });
-            console.log(`Bound credential:`, JSON.stringify(credential, null, 2));
+            console.log(`Bound credential, now issuing...`);
             
-            // The credential itself has an ID we can reference
-            // Get list of issued credentials to find this one
-            const issued = await keymaster.listIssued();
-            credentialDid = issued[issued.length - 1]; // Most recent
+            // Issue the bound credential to get a DID
+            credentialDid = await keymaster.issueCredential(boundCredential);
             console.log(`Issued new credential ${credentialDid} for ${user.name}`);
         }
 
