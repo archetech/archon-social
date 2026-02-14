@@ -925,11 +925,10 @@ app.post('/api/credential/request', isAuthenticated, async (req: Request, res: R
         // Switch to owner identity to issue credential
         await keymaster.setCurrentId(roles.owner);
 
-        // Build the credential
+        // Build the credential - issuer is set automatically from current identity
         const vc: any = {
             "@context": ["https://www.w3.org/2018/credentials/v1"],
             type: ['VerifiableCredential', 'ArchonSocialNameCredential'],
-            issuer: ownerDID,
             credentialSubject: {
                 id: userDid,
                 name: `@${user.name}`,
