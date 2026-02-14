@@ -59,6 +59,7 @@ app.use(session({
 }));
 
 let ownerDID = '';
+const roleDIDs: Record<string, string> = {};
 
 async function verifyRoles(): Promise<void> {
     const currentId = await keymaster.getCurrentId();
@@ -80,32 +81,35 @@ async function verifyRoles(): Promise<void> {
 
     try {
         const docs = await keymaster.resolveDID(roles.admin);
-        console.log(`${roles.admin}: ${docs.didDocument?.id}`);
+        roleDIDs.admin = docs.didDocument?.id!;
+        console.log(`${roles.admin}: ${roleDIDs.admin}`);
     }
     catch (error) {
         console.log(`Creating group ${roles.admin}`);
-        await keymaster.createGroup(roles.admin);
-        await keymaster.addGroupMember(roles.admin, roles.owner);
+        roleDIDs.admin = await keymaster.createGroup(roles.admin);
+        await keymaster.addGroupMember(roleDIDs.admin, ownerDID);
     }
 
     try {
         const docs = await keymaster.resolveDID(roles.moderator);
-        console.log(`${roles.moderator}: ${docs.didDocument?.id}`);
+        roleDIDs.moderator = docs.didDocument?.id!;
+        console.log(`${roles.moderator}: ${roleDIDs.moderator}`);
     }
     catch (error) {
         console.log(`Creating group ${roles.moderator}`);
-        await keymaster.createGroup(roles.moderator);
-        await keymaster.addGroupMember(roles.moderator, roles.admin);
+        roleDIDs.moderator = await keymaster.createGroup(roles.moderator);
+        await keymaster.addGroupMember(roleDIDs.moderator, roleDIDs.admin);
     }
 
     try {
         const docs = await keymaster.resolveDID(roles.member);
-        console.log(`${roles.member}: ${docs.didDocument?.id}`);
+        roleDIDs.member = docs.didDocument?.id!;
+        console.log(`${roles.member}: ${roleDIDs.member}`);
     }
     catch (error) {
         console.log(`Creating group ${roles.member}`);
-        await keymaster.createGroup(roles.member);
-        await keymaster.addGroupMember(roles.member, roles.moderator);
+        roleDIDs.member = await keymaster.createGroup(roles.member);
+        await keymaster.addGroupMember(roleDIDs.member, roleDIDs.moderator);
     }
 
     if (currentId) {
@@ -119,19 +123,19 @@ async function getRole(user: string): Promise<string | null> {
             return 'Owner';
         }
 
-        const isAdmin = await keymaster.testGroup(roles.admin, user);
+        const isAdmin = await keymaster.testGroup(roleDIDs.admin, user);
 
         if (isAdmin) {
             return 'Admin';
         }
 
-        const isModerator = await keymaster.testGroup(roles.moderator, user);
+        const isModerator = await keymaster.testGroup(roleDIDs.moderator, user);
 
         if (isModerator) {
             return 'Moderator';
         }
 
-        const isMember = await keymaster.testGroup(roles.member, user);
+        const isMember = await keymaster.testGroup(roleDIDs.member, user);
 
         if (isMember) {
             return 'Member';
@@ -154,27 +158,27 @@ async function setRole(user: string, role: string): Promise<string | null> {
         }
 
         if (currentRole === 'Admin') {
-            await keymaster.removeGroupMember(roles.admin, user);
+            await keymaster.removeGroupMember(roleDIDs.admin, user);
         }
 
         if (currentRole === 'Moderator') {
-            await keymaster.removeGroupMember(roles.moderator, user);
+            await keymaster.removeGroupMember(roleDIDs.moderator, user);
         }
 
         if (currentRole === 'Member') {
-            await keymaster.removeGroupMember(roles.member, user);
+            await keymaster.removeGroupMember(roleDIDs.member, user);
         }
 
         if (role === 'Admin') {
-            await keymaster.addGroupMember(roles.admin, user);
+            await keymaster.addGroupMember(roleDIDs.admin, user);
         }
 
         if (role === 'Moderator') {
-            await keymaster.addGroupMember(roles.moderator, user);
+            await keymaster.addGroupMember(roleDIDs.moderator, user);
         }
 
         if (role === 'Member') {
-            await keymaster.addGroupMember(roles.member, user);
+            await keymaster.addGroupMember(roleDIDs.member, user);
         }
     }
     catch (error) {
@@ -185,7 +189,7 @@ async function setRole(user: string, role: string): Promise<string | null> {
 }
 
 async function addMember(userDID: string): Promise<string | null> {
-    await keymaster.addGroupMember(roles.member, userDID);
+    await keymaster.addGroupMember(roleDIDs.member, userDID);
     return await getRole(userDID);
 }
 
@@ -243,7 +247,7 @@ function isAdmin(req: Request, res: Response, next: NextFunction): void {
             return;
         }
 
-        const inAdminRole = await userInRole(userDid, roles.admin);
+        const inAdminRole = await userInRole(userDid, roleDIDs.admin);
         if (inAdminRole) {
             return next();
         }
@@ -411,9 +415,9 @@ app.get('/api/check-auth', async (req: Request, res: Response) => {
             if (userDID === ownerDID) {
                 isOwner = true;
             }
-            isAdmin = await userInRole(userDID, roles.admin);
-            isModerator = await userInRole(userDID, roles.moderator);
-            isMember = await userInRole(userDID, roles.member);
+            isAdmin = await userInRole(userDID, roleDIDs.admin);
+            isModerator = await userInRole(userDID, roleDIDs.moderator);
+            isMember = await userInRole(userDID, roleDIDs.member);
         }
 
         const auth = {
