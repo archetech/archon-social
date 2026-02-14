@@ -53,21 +53,30 @@ function App() {
     );
 }
 
-function Header({ title } : { title: string }) {
+function Header({ title, showTagline = false } : { title: string, showTagline?: boolean }) {
     return (
         <Box
             sx={{
                 display: 'flex',
+                flexDirection: 'column',
                 alignItems: 'center',
-                gap: 3,
+                gap: 1,
+                mb: 3,
             }}
         >
-            <Link to="/">
-                <img src="/demo.png" alt="home" />
+            <Link to="/" style={{ textDecoration: 'none' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                    <img src="/archon-logo.png" alt="Archon Social" style={{ width: 64, height: 64 }} />
+                    <Typography variant="h3" component="h1" sx={{ fontWeight: 700, color: '#1a1a1a' }}>
+                        {title}
+                    </Typography>
+                </Box>
             </Link>
-            <Typography variant="h4" component="h1">
-                {title}
-            </Typography>
+            {showTagline && (
+                <Typography variant="subtitle1" sx={{ color: '#666', fontStyle: 'italic' }}>
+                    Self-Sovereign Identity for Everyone
+                </Typography>
+            )}
         </Box>
     )
 }
@@ -117,7 +126,7 @@ function Home() {
     if (!auth) {
         return (
             <div className="App">
-                <Header title="Home" />
+                <Header title="Archon.Social" showTagline />
                 <p>Loading...</p>
             </div>
         )
@@ -125,49 +134,117 @@ function Home() {
 
     return (
         <div className="App">
-            <Header title="Home" />
-            <Box sx={{ mb:2, width: 400, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Typography variant="h5">MDIP roles auth demo</Typography>
-
-                {isAuthenticated ? (
-                    <Button variant="contained" color="primary" onClick={logout} sx={{ mt: 2 }}>
-                        Logout
-                    </Button>
-                ) : (
-                    <Button variant="contained" color="primary" onClick={login} sx={{ mt: 2 }}>
-                        Login
-                    </Button>
-                )}
-            </Box>
+            <Header title="Archon.Social" showTagline />
 
             {isAuthenticated ? (
-                <Box>
-                    {logins > 1 ? (
-                        `Welcome back, ${userName || userDID}`
-                    ) : (
-                        `Welcome, ${userDID}`
-                    )}
-                    <br />
-                    You have access to the following pages:
-                    <ul>
-                        <li><Link to={`/profile/${userDID}`}>Profile</Link></li>
+                <Box sx={{ maxWidth: 600, mx: 'auto', textAlign: 'center' }}>
+                    <Box sx={{ 
+                        backgroundColor: '#f8f9fa', 
+                        borderRadius: 2, 
+                        p: 3, 
+                        mb: 3,
+                        border: '1px solid #e9ecef'
+                    }}>
+                        <Typography variant="h5" sx={{ mb: 2, color: '#2c3e50' }}>
+                            {logins > 1 ? `Welcome back, ${userName || 'friend'}!` : `Welcome aboard!`}
+                        </Typography>
+                        
+                        {userName ? (
+                            <Typography variant="h6" sx={{ color: '#27ae60', fontWeight: 600 }}>
+                                🎉 Your handle: <strong>@{userName}</strong>
+                            </Typography>
+                        ) : (
+                            <Typography variant="body1" sx={{ color: '#e74c3c' }}>
+                                You haven't claimed a name yet! Visit your profile to claim one.
+                            </Typography>
+                        )}
+                    </Box>
+
+                    <Typography variant="body2" sx={{ mb: 2, color: '#666' }}>
+                        You have access to:
+                    </Typography>
+                    
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, justifyContent: 'center', mb: 3 }}>
+                        <Button component={Link} to={`/profile/${userDID}`} variant="outlined" size="small">
+                            My Profile
+                        </Button>
                         {auth.isMember &&
-                            <li><Link to='/members'>Members Area</Link></li>
+                            <Button component={Link} to='/members' variant="outlined" size="small">
+                                Members
+                            </Button>
                         }
                         {auth.isModerator &&
-                            <li><Link to='/moderators'>Moderators Area</Link></li>
+                            <Button component={Link} to='/moderators' variant="outlined" size="small">
+                                Moderators
+                            </Button>
                         }
                         {auth.isAdmin &&
-                            <li><Link to='/admins'>Admins Area</Link></li>
+                            <Button component={Link} to='/admins' variant="outlined" size="small">
+                                Admin
+                            </Button>
                         }
                         {auth.isOwner &&
-                            <li><Link to='/owner'>Owner Area</Link></li>
+                            <Button component={Link} to='/owner' variant="outlined" size="small">
+                                Owner
+                            </Button>
                         }
-                    </ul>
+                    </Box>
+
+                    <Button variant="contained" color="error" onClick={logout}>
+                        Logout
+                    </Button>
                 </Box>
             ) : (
-                <Box>
-                    Please login to continue
+                <Box sx={{ maxWidth: 700, mx: 'auto', textAlign: 'center' }}>
+                    <Box sx={{ 
+                        backgroundColor: '#f8f9fa', 
+                        borderRadius: 2, 
+                        p: 4, 
+                        mb: 4,
+                        border: '1px solid #e9ecef'
+                    }}>
+                        <Typography variant="h4" sx={{ mb: 2, fontWeight: 600, color: '#2c3e50' }}>
+                            Have you named your DID?
+                        </Typography>
+                        <Typography variant="h6" sx={{ mb: 3, color: '#555', lineHeight: 1.6 }}>
+                            Register your free name on the <strong>Archon.Social</strong> identity network.
+                        </Typography>
+                        <Typography variant="body1" sx={{ mb: 3, color: '#666' }}>
+                            🤖 AIs and humans welcome! 🧑‍💻
+                        </Typography>
+                        <Typography variant="body1" sx={{ color: '#777' }}>
+                            Create your self-sovereign digital identity and claim your name.
+                            <br />
+                            No email required. No passwords. Just your cryptographic identity.
+                        </Typography>
+                    </Box>
+
+                    <Button 
+                        variant="contained" 
+                        color="primary" 
+                        onClick={login} 
+                        size="large"
+                        sx={{ 
+                            px: 5, 
+                            py: 1.5, 
+                            fontSize: '1.1rem',
+                            borderRadius: 2,
+                            textTransform: 'none',
+                            fontWeight: 600
+                        }}
+                    >
+                        Prove Your DID & Claim Your Name
+                    </Button>
+
+                    <Box sx={{ mt: 4, pt: 3, borderTop: '1px solid #e9ecef' }}>
+                        <Typography variant="body2" sx={{ color: '#888' }}>
+                            Powered by <a href="https://archon.technology" target="_blank" rel="noopener noreferrer" style={{ color: '#3498db' }}>Archon Protocol</a>
+                            {' • '}
+                            <a href="/directory.json" target="_blank" rel="noopener noreferrer" style={{ color: '#3498db' }}>View Directory</a>
+                            {' • '}
+                            <a href="https://ipfs.io/ipns/archon.social" target="_blank" rel="noopener noreferrer" style={{ color: '#3498db' }}>IPNS Registry</a>
+                        </Typography>
+                    </Box>
                 </Box>
             )}
         </div>
