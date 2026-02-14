@@ -150,42 +150,49 @@ async function getRole(user: string): Promise<string | null> {
 }
 
 async function setRole(user: string, role: string): Promise<string | null> {
-    try {
-        const currentRole = await getRole(user);
+    const currentRole = await getRole(user);
 
-        if (currentRole === 'Owner' || role === currentRole) {
-            return currentRole;
-        }
-
-        if (currentRole === 'Admin') {
-            await keymaster.removeGroupMember(roleDIDs.admin, user);
-        }
-
-        if (currentRole === 'Moderator') {
-            await keymaster.removeGroupMember(roleDIDs.moderator, user);
-        }
-
-        if (currentRole === 'Member') {
-            await keymaster.removeGroupMember(roleDIDs.member, user);
-        }
-
-        if (role === 'Admin') {
-            await keymaster.addGroupMember(roleDIDs.admin, user);
-        }
-
-        if (role === 'Moderator') {
-            await keymaster.addGroupMember(roleDIDs.moderator, user);
-        }
-
-        if (role === 'Member') {
-            await keymaster.addGroupMember(roleDIDs.member, user);
-        }
-    }
-    catch (error) {
-        console.log(error);
+    if (currentRole === 'Owner' || role === currentRole) {
+        return currentRole;
     }
 
-    return await getRole(user);
+    console.log(`Changing role for ${user} from ${currentRole} to ${role}`);
+
+    // Remove from current group
+    if (currentRole === 'Admin') {
+        console.log(`Removing from admin group...`);
+        await keymaster.removeGroupMember(roleDIDs.admin, user);
+    }
+
+    if (currentRole === 'Moderator') {
+        console.log(`Removing from moderator group...`);
+        await keymaster.removeGroupMember(roleDIDs.moderator, user);
+    }
+
+    if (currentRole === 'Member') {
+        console.log(`Removing from member group...`);
+        await keymaster.removeGroupMember(roleDIDs.member, user);
+    }
+
+    // Add to new group
+    if (role === 'Admin') {
+        console.log(`Adding to admin group (${roleDIDs.admin})...`);
+        await keymaster.addGroupMember(roleDIDs.admin, user);
+    }
+
+    if (role === 'Moderator') {
+        console.log(`Adding to moderator group (${roleDIDs.moderator})...`);
+        await keymaster.addGroupMember(roleDIDs.moderator, user);
+    }
+
+    if (role === 'Member') {
+        console.log(`Adding to member group (${roleDIDs.member})...`);
+        await keymaster.addGroupMember(roleDIDs.member, user);
+    }
+
+    const newRole = await getRole(user);
+    console.log(`Role change complete. New role: ${newRole}`);
+    return newRole;
 }
 
 async function addMember(userDID: string): Promise<string | null> {
