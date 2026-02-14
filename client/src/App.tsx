@@ -7,7 +7,7 @@ import {
     Routes,
     Route,
 } from "react-router-dom";
-import { Box, Button, Select, MenuItem, TextField, Typography } from '@mui/material';
+import { Alert, Box, Button, Select, MenuItem, TextField, Typography } from '@mui/material';
 import { Table, TableBody, TableRow, TableCell } from '@mui/material';
 import axios from 'axios';
 import { format, differenceInDays } from 'date-fns';
@@ -565,6 +565,9 @@ function ViewModerators() {
 
 function ViewAdmins() {
     const navigate = useNavigate();
+    const [publishing, setPublishing] = useState(false);
+    const [publishResult, setPublishResult] = useState<any>(null);
+    const [error, setError] = useState('');
 
     useEffect(() => {
         const init = async () => {
@@ -584,10 +587,56 @@ function ViewAdmins() {
         init();
     }, [navigate]);
 
+    const publishToIPNS = async () => {
+        setPublishing(true);
+        setError('');
+        setPublishResult(null);
+        try {
+            const response = await api.post('/admin/publish');
+            setPublishResult(response.data);
+        } catch (err: any) {
+            setError(err.response?.data?.error || 'Failed to publish');
+        } finally {
+            setPublishing(false);
+        }
+    };
+
     return (
         <div className="App">
-            <Header title="Admins Area" />
-            <p>Admins have the ability to set roles for other users</p>
+            <Header title="Admin Area" />
+            <Box sx={{ maxWidth: 600, mx: 'auto', p: 3 }}>
+                <Typography variant="h6" gutterBottom>Registry Management</Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    Publish the name registry to IPNS for decentralized resolution.
+                </Typography>
+                
+                <Button 
+                    variant="contained" 
+                    onClick={publishToIPNS}
+                    disabled={publishing}
+                    sx={{ mb: 2 }}
+                >
+                    {publishing ? 'Publishing...' : 'Publish to IPNS'}
+                </Button>
+
+                {error && (
+                    <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>
+                )}
+
+                {publishResult && (
+                    <Alert severity="success" sx={{ mb: 2 }}>
+                        <Typography variant="body2">
+                            <strong>Published successfully!</strong><br />
+                            CID: {publishResult.cid}<br />
+                            IPNS: {publishResult.ipns}
+                        </Typography>
+                    </Alert>
+                )}
+
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 3 }}>
+                    Admins can also set roles for other users via the profile pages.
+                </Typography>
+            </Box>
         </div>
     )
 }
