@@ -929,6 +929,7 @@ app.post('/api/credential/request', isAuthenticated, async (req: Request, res: R
         const vc: any = {
             "@context": ["https://www.w3.org/2018/credentials/v1"],
             type: ['VerifiableCredential', 'ArchonSocialNameCredential'],
+            issuer: ownerDID,
             credentialSubject: {
                 id: userDid,
                 name: `@${user.name}`,
