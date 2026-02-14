@@ -80,39 +80,39 @@ async function verifyRoles(): Promise<void> {
     await keymaster.setCurrentId(roles.owner);
 
     // Resolve or create Admin group
-    const existingAdmin = await keymaster.getAlias(roles.admin);
-    if (existingAdmin) {
-        roleDIDs.admin = existingAdmin;
+    try {
+        const doc = await keymaster.resolveDID(roles.admin);
+        roleDIDs.admin = doc.didDocument?.id || doc.mdip?.data?.id;
+        if (!roleDIDs.admin) throw new Error('Could not get admin DID');
         console.log(`${roles.admin}: ${roleDIDs.admin}`);
-    } else {
+    } catch (error) {
         console.log(`Creating group ${roles.admin}`);
         roleDIDs.admin = await keymaster.createGroup(roles.admin);
-        await keymaster.addAlias(roles.admin, roleDIDs.admin);
-        console.log(`Registered alias ${roles.admin} -> ${roleDIDs.admin}`);
+        console.log(`Created ${roles.admin}: ${roleDIDs.admin}`);
     }
 
     // Resolve or create Moderator group
-    const existingModerator = await keymaster.getAlias(roles.moderator);
-    if (existingModerator) {
-        roleDIDs.moderator = existingModerator;
+    try {
+        const doc = await keymaster.resolveDID(roles.moderator);
+        roleDIDs.moderator = doc.didDocument?.id || doc.mdip?.data?.id;
+        if (!roleDIDs.moderator) throw new Error('Could not get moderator DID');
         console.log(`${roles.moderator}: ${roleDIDs.moderator}`);
-    } else {
+    } catch (error) {
         console.log(`Creating group ${roles.moderator}`);
         roleDIDs.moderator = await keymaster.createGroup(roles.moderator);
-        await keymaster.addAlias(roles.moderator, roleDIDs.moderator);
-        console.log(`Registered alias ${roles.moderator} -> ${roleDIDs.moderator}`);
+        console.log(`Created ${roles.moderator}: ${roleDIDs.moderator}`);
     }
 
     // Resolve or create Member group
-    const existingMember = await keymaster.getAlias(roles.member);
-    if (existingMember) {
-        roleDIDs.member = existingMember;
+    try {
+        const doc = await keymaster.resolveDID(roles.member);
+        roleDIDs.member = doc.didDocument?.id || doc.mdip?.data?.id;
+        if (!roleDIDs.member) throw new Error('Could not get member DID');
         console.log(`${roles.member}: ${roleDIDs.member}`);
-    } else {
+    } catch (error) {
         console.log(`Creating group ${roles.member}`);
         roleDIDs.member = await keymaster.createGroup(roles.member);
-        await keymaster.addAlias(roles.member, roleDIDs.member);
-        console.log(`Registered alias ${roles.member} -> ${roleDIDs.member}`);
+        console.log(`Created ${roles.member}: ${roleDIDs.member}`);
     }
 
     // Ensure hierarchy is set up (idempotent - won't duplicate if already exists)
