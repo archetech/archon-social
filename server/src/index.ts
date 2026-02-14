@@ -179,17 +179,26 @@ async function setRole(user: string, role: string): Promise<string | null> {
     // Add to new group
     if (role === 'Admin') {
         console.log(`Adding to admin group (${roleDIDs.admin})...`);
-        await keymaster.addGroupMember(roleDIDs.admin, user);
+        const result = await keymaster.addGroupMember(roleDIDs.admin, user);
+        console.log(`addGroupMember result: ${result}`);
+        const verify = await keymaster.testGroup(roleDIDs.admin, user);
+        console.log(`Verify in admin group: ${verify}`);
     }
 
     if (role === 'Moderator') {
         console.log(`Adding to moderator group (${roleDIDs.moderator})...`);
-        await keymaster.addGroupMember(roleDIDs.moderator, user);
+        const result = await keymaster.addGroupMember(roleDIDs.moderator, user);
+        console.log(`addGroupMember result: ${result}`);
+        const verify = await keymaster.testGroup(roleDIDs.moderator, user);
+        console.log(`Verify in moderator group: ${verify}`);
     }
 
     if (role === 'Member') {
         console.log(`Adding to member group (${roleDIDs.member})...`);
-        await keymaster.addGroupMember(roleDIDs.member, user);
+        const result = await keymaster.addGroupMember(roleDIDs.member, user);
+        console.log(`addGroupMember result: ${result}`);
+        const verify = await keymaster.testGroup(roleDIDs.member, user);
+        console.log(`Verify in member group: ${verify}`);
     }
 
     const newRole = await getRole(user);
