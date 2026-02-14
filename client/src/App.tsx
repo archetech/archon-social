@@ -47,6 +47,7 @@ function App() {
                 <Route path="/admins" element={<ViewAdmins />} />
                 <Route path="/owner" element={<ViewOwner />} />
                 <Route path="/profile/:did" element={<ViewProfile />} />
+                <Route path="/member/:name" element={<ViewMember />} />
                 <Route path="*" element={<NotFound />} />
             </Routes>
         </Router>
@@ -405,31 +406,119 @@ function ViewLogout() {
     return null;
 }
 
+interface DirectoryEntry {
+    name: string;
+    did: string;
+}
+
 function ViewMembers() {
+    const [directory, setDirectory] = useState<DirectoryEntry[]>([]);
+    const [loading, setLoading] = useState<boolean>(true);
+    const [lastUpdated, setLastUpdated] = useState<string>('');
     const navigate = useNavigate();
 
     useEffect(() => {
         const init = async () => {
             try {
-                const response = await api.get(`/check-auth`);
-                const auth = response.data;
+                const authResponse = await api.get(`/check-auth`);
+                const auth = authResponse.data;
 
                 if (!auth.isMember) {
                     navigate('/');
+                    return;
                 }
+
+                // Fetch directory
+                const dirResponse = await api.get(`/registry`);
+                const data = dirResponse.data;
+                
+                setLastUpdated(data.updated || '');
+                
+                // Convert names object to array for easier rendering
+                const entries: DirectoryEntry[] = Object.entries(data.names || {}).map(
+                    ([name, did]) => ({ name, did: did as string })
+                );
+                
+                // Sort alphabetically by name
+                entries.sort((a, b) => a.name.localeCompare(b.name));
+                setDirectory(entries);
             }
             catch (error: any) {
+                console.error(error);
                 navigate('/');
+            }
+            finally {
+                setLoading(false);
             }
         };
 
         init();
     }, [navigate]);
 
+    if (loading) {
+        return (
+            <div className="App">
+                <Header title="Member Directory" />
+                <p>Loading directory...</p>
+            </div>
+        );
+    }
+
     return (
         <div className="App">
-            <Header title="Members Area" />
-            <p>Members Area TBD</p>
+            <Header title="Member Directory" />
+            
+            <Box sx={{ maxWidth: 800, mx: 'auto' }}>
+                <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Typography variant="body2" sx={{ color: '#666' }}>
+                        {directory.length} registered {directory.length === 1 ? 'member' : 'members'}
+                    </Typography>
+                    {lastUpdated && (
+                        <Typography variant="body2" sx={{ color: '#888' }}>
+                            Last updated: {format(new Date(lastUpdated), 'MMM d, yyyy h:mm a')}
+                        </Typography>
+                    )}
+                </Box>
+
+                <Table sx={{ backgroundColor: '#fff', borderRadius: 2, overflow: 'hidden' }}>
+                    <TableBody>
+                        {directory.map((entry) => (
+                            <TableRow 
+                                key={entry.did}
+                                sx={{ 
+                                    '&:hover': { backgroundColor: '#f8f9fa' },
+                                    cursor: 'pointer'
+                                }}
+                                onClick={() => navigate(`/profile/${entry.did}`)}
+                            >
+                                <TableCell sx={{ fontWeight: 600, fontSize: '1.1rem', color: '#2c3e50' }}>
+                                    @{entry.name}
+                                </TableCell>
+                                <TableCell sx={{ color: '#666', fontFamily: 'monospace', fontSize: '0.85rem' }}>
+                                    {entry.did.substring(0, 20)}...{entry.did.substring(entry.did.length - 8)}
+                                </TableCell>
+                                <TableCell align="right">
+                                    <Button 
+                                        component={Link} 
+                                        to={`/member/${entry.name}`}
+                                        size="small"
+                                        variant="outlined"
+                                        onClick={(e) => e.stopPropagation()}
+                                    >
+                                        View DID Doc
+                                    </Button>
+                                </TableCell>
+                            </TableRow>
+                        ))}
+                    </TableBody>
+                </Table>
+
+                <Box sx={{ mt: 3, textAlign: 'center' }}>
+                    <Button component={Link} to="/" variant="text">
+                        ← Back to Home
+                    </Button>
+                </Box>
+            </Box>
         </div>
     )
 }
@@ -710,6 +799,113 @@ function ViewProfile() {
             </Table>
         </div>
     )
+}
+
+function ViewMember() {
+    const { name } = useParams<{ name: string }>();
+    const [memberData, setMemberData] = useState<any>(null);
+    const [loading, setLoading] = useState<boolean>(true);
+    const [error, setError] = useState<string>('');
+
+    useEffect(() => {
+        const fetchMember = async () => {
+            try {
+                const response = await axios.get(`/member/${name}`);
+                setMemberData(response.data);
+            }
+            catch (err: any) {
+                setError(err.response?.data?.error || 'Member not found');
+            }
+            finally {
+                setLoading(false);
+            }
+        };
+
+        if (name) {
+            fetchMember();
+        }
+    }, [name]);
+
+    if (loading) {
+        return (
+            <div className="App">
+                <Header title={`@${name}`} />
+                <p>Loading...</p>
+            </div>
+        );
+    }
+
+    if (error) {
+        return (
+            <div className="App">
+                <Header title="Member Not Found" />
+                <Box sx={{ maxWidth: 600, mx: 'auto', textAlign: 'center' }}>
+                    <Typography variant="h6" sx={{ color: '#e74c3c', mb: 2 }}>
+                        {error}
+                    </Typography>
+                    <Button component={Link} to="/members" variant="outlined">
+                        ← Back to Directory
+                    </Button>
+                </Box>
+            </div>
+        );
+    }
+
+    return (
+        <div className="App">
+            <Header title={`@${name}`} />
+            
+            <Box sx={{ maxWidth: 800, mx: 'auto' }}>
+                <Box sx={{ 
+                    backgroundColor: '#f8f9fa', 
+                    borderRadius: 2, 
+                    p: 3, 
+                    mb: 3,
+                    border: '1px solid #e9ecef',
+                    textAlign: 'center'
+                }}>
+                    <Typography variant="h4" sx={{ fontWeight: 600, color: '#2c3e50', mb: 1 }}>
+                        @{memberData?.name}
+                    </Typography>
+                    <Typography variant="body1" sx={{ fontFamily: 'monospace', color: '#666', wordBreak: 'break-all' }}>
+                        {memberData?.did}
+                    </Typography>
+                </Box>
+
+                <Typography variant="h6" sx={{ mb: 2 }}>DID Document</Typography>
+                
+                <Box sx={{ 
+                    backgroundColor: '#1e1e1e', 
+                    borderRadius: 2, 
+                    p: 2,
+                    overflow: 'auto'
+                }}>
+                    <pre style={{ 
+                        color: '#d4d4d4', 
+                        margin: 0, 
+                        fontSize: '0.85rem',
+                        fontFamily: 'Monaco, Consolas, monospace'
+                    }}>
+                        {JSON.stringify(memberData?.didDocument, null, 2)}
+                    </pre>
+                </Box>
+
+                <Box sx={{ mt: 3, display: 'flex', gap: 2, justifyContent: 'center' }}>
+                    <Button component={Link} to="/members" variant="outlined">
+                        ← Back to Directory
+                    </Button>
+                    <Button 
+                        component="a" 
+                        href={`https://archon.technology/resolver/${memberData?.did}`}
+                        target="_blank"
+                        variant="outlined"
+                    >
+                        View on Archon Explorer
+                    </Button>
+                </Box>
+            </Box>
+        </div>
+    );
 }
 
 function NotFound() {
