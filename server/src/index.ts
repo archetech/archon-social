@@ -700,6 +700,71 @@ app.get('/api/name/:name', async (req: Request, res: Response) => {
     }
 });
 
+// Public directory.json - same as /api/registry for IPNS compatibility
+app.get('/directory.json', async (_: Request, res: Response) => {
+    try {
+        const currentDb = db.loadDb();
+        const names: Record<string, string> = {};
+
+        if (currentDb.users) {
+            for (const [did, user] of Object.entries(currentDb.users)) {
+                if (user.name) {
+                    names[user.name] = did;
+                }
+            }
+        }
+
+        const registry = {
+            version: 1,
+            updated: new Date().toISOString(),
+            names
+        };
+
+        res.json(registry);
+    }
+    catch (error) {
+        console.log(error);
+        res.status(500).send(String(error));
+    }
+});
+
+// Resolve a member name to their DID document
+app.get('/member/:name', async (req: Request, res: Response) => {
+    try {
+        const name = req.params.name.trim().toLowerCase();
+        const currentDb = db.loadDb();
+
+        let memberDid: string | null = null;
+
+        if (currentDb.users) {
+            for (const [did, user] of Object.entries(currentDb.users)) {
+                if (user.name?.toLowerCase() === name) {
+                    memberDid = did;
+                    break;
+                }
+            }
+        }
+
+        if (!memberDid) {
+            res.status(404).json({ error: 'Name not found', name });
+            return;
+        }
+
+        // Fetch DID document from gatekeeper
+        const didDoc = await keymaster.resolveDID(memberDid);
+
+        res.json({
+            name,
+            did: memberDid,
+            didDocument: didDoc
+        });
+    }
+    catch (error: any) {
+        console.log(error);
+        res.status(500).json({ error: error.message || String(error) });
+    }
+});
+
 const validRoles = ['Admin', 'Moderator', 'Member'];
 
 app.get('/api/roles', async (_: Request, res: Response) => {
