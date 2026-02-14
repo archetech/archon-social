@@ -41,10 +41,10 @@ const logins: Record<string, {
 }> = {};
 
 const roles = {
-    owner: 'auth-demo-owner',
-    admin: 'auth-demo-admin',
-    moderator: 'auth-demo-moderator',
-    member: 'auth-demo-member',
+    owner: 'archon-social',
+    admin: 'archon-social-admin',
+    moderator: 'archon-social-moderator',
+    member: 'archon-social-member',
 };
 
 app.use(morgan('dev'));
@@ -820,6 +820,36 @@ app.put('/api/profile/:did/role', isAdmin, async (req: Request, res: Response) =
     catch (error) {
         console.log(error);
         res.status(500).send(String(error));
+    }
+});
+
+// Admin: Delete a user
+app.delete('/api/admin/user/:did', isAdmin, async (req: Request, res: Response) => {
+    try {
+        const did = decodeURIComponent(req.params.did);
+        const currentDb = db.loadDb();
+
+        if (!currentDb.users || !currentDb.users[did]) {
+            res.status(404).json({ error: 'User not found' });
+            return;
+        }
+
+        // Don't allow deleting the owner
+        if (did === ownerDID) {
+            res.status(403).json({ error: 'Cannot delete the owner account' });
+            return;
+        }
+
+        const userName = currentDb.users[did].name || did;
+        delete currentDb.users[did];
+        db.writeDb(currentDb);
+
+        console.log(`Deleted user ${userName} (${did})`);
+        res.json({ ok: true, message: `User ${userName} deleted` });
+    }
+    catch (error: any) {
+        console.log(error);
+        res.status(500).json({ error: error.message || String(error) });
     }
 });
 
