@@ -82,8 +82,7 @@ async function verifyRoles(): Promise<void> {
     // Resolve or create Admin group
     try {
         const doc = await keymaster.resolveDID(roles.admin);
-        roleDIDs.admin = doc.didDocument?.id || doc.mdip?.data?.id;
-        if (!roleDIDs.admin) throw new Error('Could not get admin DID');
+        roleDIDs.admin = doc.didDocument?.id!;
         console.log(`${roles.admin}: ${roleDIDs.admin}`);
     } catch (error) {
         console.log(`Creating group ${roles.admin}`);
@@ -94,8 +93,7 @@ async function verifyRoles(): Promise<void> {
     // Resolve or create Moderator group
     try {
         const doc = await keymaster.resolveDID(roles.moderator);
-        roleDIDs.moderator = doc.didDocument?.id || doc.mdip?.data?.id;
-        if (!roleDIDs.moderator) throw new Error('Could not get moderator DID');
+        roleDIDs.moderator = doc.didDocument?.id!;
         console.log(`${roles.moderator}: ${roleDIDs.moderator}`);
     } catch (error) {
         console.log(`Creating group ${roles.moderator}`);
@@ -106,8 +104,7 @@ async function verifyRoles(): Promise<void> {
     // Resolve or create Member group
     try {
         const doc = await keymaster.resolveDID(roles.member);
-        roleDIDs.member = doc.didDocument?.id || doc.mdip?.data?.id;
-        if (!roleDIDs.member) throw new Error('Could not get member DID');
+        roleDIDs.member = doc.didDocument?.id!;
         console.log(`${roles.member}: ${roleDIDs.member}`);
     } catch (error) {
         console.log(`Creating group ${roles.member}`);
