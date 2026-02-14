@@ -951,20 +951,23 @@ app.post('/api/credential/request', isAuthenticated, async (req: Request, res: R
             credentialDid = user.credentialDid;
             console.log(`Updated credential ${credentialDid} for ${user.name}`);
         } else {
-            // Issue new credential - use options API
-            console.log(`Issuing new credential for ${userDid}...`);
-            credentialDid = await keymaster.issueCredential({
-                "@context": ["https://www.w3.org/2018/credentials/v1"],
-                type: ['VerifiableCredential', 'ArchonSocialNameCredential'],
-            }, { 
-                subject: userDid,
+            // Issue new credential using bindCredential
+            console.log(`Binding new credential for ${userDid}...`);
+            const credential = await keymaster.bindCredential(userDid, {
                 validFrom: new Date().toISOString(),
                 claims: {
                     name: `@${user.name}`,
                     platform: 'archon.social',
-                    registeredAt: user.firstLogin
+                    registeredAt: user.firstLogin,
+                    credentialType: 'ArchonSocialNameCredential'
                 }
             });
+            console.log(`Bound credential:`, JSON.stringify(credential, null, 2));
+            
+            // The credential itself has an ID we can reference
+            // Get list of issued credentials to find this one
+            const issued = await keymaster.listIssued();
+            credentialDid = issued[issued.length - 1]; // Most recent
             console.log(`Issued new credential ${credentialDid} for ${user.name}`);
         }
 
