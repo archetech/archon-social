@@ -1102,7 +1102,7 @@ function ViewMember() {
                     </Button>
                     <Button 
                         component="a" 
-                        href={`https://archon.technology/resolver/${memberData?.did}`}
+                        href={`https://explorer.archon.technology/search?did=${memberData?.did}`}
                         target="_blank"
                         variant="outlined"
                     >
