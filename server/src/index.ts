@@ -10,11 +10,11 @@ import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import cors from 'cors';
 
-import CipherNode from '@mdip/cipher/node';
-import GatekeeperClient from '@mdip/gatekeeper/client';
-import Keymaster from '@mdip/keymaster';
-import KeymasterClient from '@mdip/keymaster/client';
-import WalletJson from '@mdip/keymaster/wallet/json';
+import CipherNode from '@didcid/cipher/node';
+import GatekeeperClient from '@didcid/gatekeeper/client';
+import Keymaster from '@didcid/keymaster';
+import KeymasterClient from '@didcid/keymaster/client';
+import WalletJson from '@didcid/keymaster/wallet/json';
 import { DatabaseInterface, User } from './db/interfaces.js';
 import { DbJson } from './db/json.js';
 import { DbSqlite } from './db/sqlite.js';
@@ -84,8 +84,7 @@ async function verifyRoles(): Promise<void> {
     }
     catch (error) {
         console.log(`Creating group ${roles.admin}`);
-        const did = await keymaster.createGroup(roles.admin);
-        await keymaster.addName(roles.admin, did);
+        await keymaster.createGroup(roles.admin);
         await keymaster.addGroupMember(roles.admin, roles.owner);
     }
 
@@ -95,8 +94,7 @@ async function verifyRoles(): Promise<void> {
     }
     catch (error) {
         console.log(`Creating group ${roles.moderator}`);
-        const did = await keymaster.createGroup(roles.moderator);
-        await keymaster.addName(roles.moderator, did);
+        await keymaster.createGroup(roles.moderator);
         await keymaster.addGroupMember(roles.moderator, roles.admin);
     }
 
@@ -106,8 +104,7 @@ async function verifyRoles(): Promise<void> {
     }
     catch (error) {
         console.log(`Creating group ${roles.member}`);
-        const did = await keymaster.createGroup(roles.member);
-        await keymaster.addName(roles.member, did);
+        await keymaster.createGroup(roles.member);
         await keymaster.addGroupMember(roles.member, roles.moderator);
     }
 
@@ -529,7 +526,7 @@ app.post('/api/admin/publish', isAdmin, async (_: Request, res: Response) => {
 
 app.get('/api/profile/:did', isAuthenticated, async (req: Request, res: Response) => {
     try {
-        const did = req.params.did;
+        const did = req.params.did as string;
         const currentDb = db.loadDb();
 
         if (!currentDb.users || !currentDb.users[did]) {
@@ -553,7 +550,7 @@ app.get('/api/profile/:did', isAuthenticated, async (req: Request, res: Response
 
 app.get('/api/profile/:did/name', isAuthenticated, async (req: Request, res: Response) => {
     try {
-        const did = req.params.did;
+        const did = req.params.did as string;
         const currentDb = db.loadDb();
 
         if (!currentDb.users || !currentDb.users[did]) {
@@ -572,7 +569,7 @@ app.get('/api/profile/:did/name', isAuthenticated, async (req: Request, res: Res
 
 app.put('/api/profile/:did/name', isAuthenticated, async (req: Request, res: Response) => {
     try {
-        const did = req.params.did;
+        const did = req.params.did as string;
         const { name } = req.body;
 
         if (!req.session.user || req.session.user.did !== did) {
@@ -656,7 +653,7 @@ app.get('/api/registry', async (_: Request, res: Response) => {
 // Check if a name is available
 app.get('/api/name/:name/available', async (req: Request, res: Response) => {
     try {
-        const name = req.params.name.trim().toLowerCase();
+        const name = (req.params.name as string).trim().toLowerCase();
         const currentDb = db.loadDb();
 
         let available = true;
@@ -680,7 +677,7 @@ app.get('/api/name/:name/available', async (req: Request, res: Response) => {
 // Resolve a name to a DID
 app.get('/api/name/:name', async (req: Request, res: Response) => {
     try {
-        const name = req.params.name.trim().toLowerCase();
+        const name = (req.params.name as string).trim().toLowerCase();
         const currentDb = db.loadDb();
 
         if (currentDb.users) {
@@ -731,7 +728,7 @@ app.get('/directory.json', async (_: Request, res: Response) => {
 // Resolve a member name to their DID document
 app.get('/member/:name', async (req: Request, res: Response) => {
     try {
-        const name = req.params.name.trim().toLowerCase();
+        const name = (req.params.name as string).trim().toLowerCase();
         const currentDb = db.loadDb();
 
         let memberDid: string | null = null;
@@ -779,7 +776,7 @@ app.get('/api/roles', async (_: Request, res: Response) => {
 
 app.get('/api/profile/:did/role', isAuthenticated, async (req: Request, res: Response) => {
     try {
-        const did = req.params.did;
+        const did = req.params.did as string;
         const currentDb = db.loadDb();
 
         if (!currentDb.users || !currentDb.users[did]) {
@@ -798,7 +795,7 @@ app.get('/api/profile/:did/role', isAuthenticated, async (req: Request, res: Res
 
 app.put('/api/profile/:did/role', isAdmin, async (req: Request, res: Response) => {
     try {
-        const did = req.params.did;
+        const did = req.params.did as string;
         const { role } = req.body;
 
         if (!validRoles.includes(role)) {
@@ -826,7 +823,7 @@ app.put('/api/profile/:did/role', isAdmin, async (req: Request, res: Response) =
 // Admin: Delete a user
 app.delete('/api/admin/user/:did', isAdmin, async (req: Request, res: Response) => {
     try {
-        const did = decodeURIComponent(req.params.did);
+        const did = decodeURIComponent(req.params.did as string);
         const currentDb = db.loadDb();
 
         if (!currentDb.users || !currentDb.users[did]) {
@@ -929,8 +926,6 @@ app.post('/api/credential/request', isAuthenticated, async (req: Request, res: R
             type: ['VerifiableCredential', 'ArchonSocialNameCredential'],
             credentialSubject: {
                 id: userDid,
-            },
-            credential: {
                 name: `@${user.name}`,
                 platform: 'archon.social',
                 registeredAt: user.firstLogin
