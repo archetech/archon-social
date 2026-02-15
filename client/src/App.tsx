@@ -850,6 +850,11 @@ function ViewProfile() {
                     </TableRow>
                 </TableBody>
             </Table>
+            <Box sx={{ mt: 3 }}>
+                <Button component={Link} to="/" variant="outlined">
+                    ← Back to Home
+                </Button>
+            </Box>
         </div>
     )
 }
