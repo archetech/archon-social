@@ -37,7 +37,7 @@ interface AuthState {
 
 function App() {
     return (
-        <Router>
+        <Router basename="/app">
             <Routes>
                 <Route path="/" element={<Home />} />
                 <Route path="/login" element={<ViewLogin />} />
