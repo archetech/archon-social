@@ -5,6 +5,7 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
 
   return {
+    base: '/app/',
     plugins: [react()],
     server: {
       port: parseInt(env.VITE_EXPLORER_PORT) || 3001,

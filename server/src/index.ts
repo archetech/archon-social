@@ -18,6 +18,7 @@ import WalletJson from '@didcid/keymaster/wallet/json';
 import { DatabaseInterface, User } from './db/interfaces.js';
 import { DbJson } from './db/json.js';
 import { DbSqlite } from './db/sqlite.js';
+import { createOAuthRoutes } from './oauth/index.js';
 
 let keymaster: Keymaster | KeymasterClient;
 let db: DatabaseInterface;
@@ -352,6 +353,24 @@ const corsOptions = {
 app.use(cors(corsOptions));
 
 app.options('/api/{*path}', cors(corsOptions));
+
+// Helper function for OAuth
+async function getMemberByDID(did: string): Promise<any> {
+    const currentDb = db.loadDb();
+    if (currentDb.users && currentDb.users[did]) {
+        return {
+            ...currentDb.users[did],
+            did,
+            handle: currentDb.users[did].name
+        };
+    }
+    return null;
+}
+
+// Mount OAuth routes (keymaster accessed lazily)
+const oauthRouter = createOAuthRoutes(() => keymaster, getMemberByDID);
+app.use('/oauth', oauthRouter);
+console.log('OAuth routes mounted at /oauth');
 
 app.get('/api/version', async (_: Request, res: Response) => {
     try {
