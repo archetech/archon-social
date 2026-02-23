@@ -1079,7 +1079,7 @@ function ViewMember() {
     useEffect(() => {
         const fetchMember = async () => {
             try {
-                const response = await axios.get(`/member/${name}`);
+                const response = await api.get(`/member/${name}`);
                 setMemberData(response.data);
             }
             catch (err: any) {
