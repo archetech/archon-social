@@ -32,6 +32,7 @@ const WALLET_URL = process.env.AD_WALLET_URL || 'http://localhost:4224';
 const AD_DATABASE_TYPE = process.env.AD_DATABASE || 'json';
 const IPFS_API_URL = process.env.AD_IPFS_API_URL || 'http://ipfs:5001/api/v0';
 const IPNS_KEY_NAME = process.env.AD_IPNS_KEY_NAME || 'self';
+const ADMIN_API_KEY = process.env.ARCHON_ADMIN_API_KEY || '';
 
 const app = express();
 const logins: Record<string, {
@@ -1140,6 +1141,7 @@ app.listen(HOST_PORT, '0.0.0.0', async () => {
             waitUntilReady: true,
             intervalSeconds: 5,
             chatty: true,
+            apiKey: ADMIN_API_KEY || undefined,
         });
         console.log(`auth-demo using keymaster at ${process.env.AD_KEYMASTER_URL}`);
     }
@@ -1157,6 +1159,7 @@ app.listen(HOST_PORT, '0.0.0.0', async () => {
             waitUntilReady: true,
             intervalSeconds: 5,
             chatty: true,
+            apiKey: ADMIN_API_KEY || undefined,
         });
         const wallet = new WalletJson();
         const cipher = new CipherNode();
