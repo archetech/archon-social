@@ -1141,6 +1141,7 @@ app.listen(HOST_PORT, '0.0.0.0', async () => {
             waitUntilReady: true,
             intervalSeconds: 5,
             chatty: true,
+            // @ts-ignore - apiKey added in @didcid/* 0.4.x
             apiKey: ADMIN_API_KEY || undefined,
         });
         console.log(`auth-demo using keymaster at ${process.env.AD_KEYMASTER_URL}`);
@@ -1159,6 +1160,7 @@ app.listen(HOST_PORT, '0.0.0.0', async () => {
             waitUntilReady: true,
             intervalSeconds: 5,
             chatty: true,
+            // @ts-ignore - apiKey added in @didcid/* 0.4.x
             apiKey: ADMIN_API_KEY || undefined,
         });
         const wallet = new WalletJson();
