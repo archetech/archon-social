@@ -304,7 +304,19 @@ function isAdmin(req: Request, res: Response, next: NextFunction): void {
 }
 
 async function loginUser(response: string): Promise<any> {
+    console.log(`loginUser called with response: ${response}`);
+    
+    // First try to resolve the response DID to check it's valid
+    try {
+        const responseDoc = await keymaster.resolveDID(response);
+        console.log(`Response DID resolved:`, JSON.stringify(responseDoc, null, 2));
+    } catch (resolveError) {
+        console.error(`Failed to resolve response DID ${response}:`, resolveError);
+        throw new Error(`Invalid DID: Cannot resolve response DID`);
+    }
+    
     const verify = await keymaster.verifyResponse(response, { retries: 10 });
+    console.log(`verifyResponse result:`, JSON.stringify(verify, null, 2));
 
     if (verify.match) {
         const challenge = verify.challenge;
