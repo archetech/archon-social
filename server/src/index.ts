@@ -1181,7 +1181,7 @@ app.listen(HOST_PORT, '0.0.0.0', async () => {
             // @ts-ignore - apiKey added in @didcid/* 0.4.x
             apiKey: ADMIN_API_KEY || undefined,
         });
-        const wallet = new WalletJson();
+        const wallet = new WalletJson('wallet.json', 'server/data');
         const cipher = new CipherNode();
         keymaster = new Keymaster({
             gatekeeper,
