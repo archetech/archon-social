@@ -259,30 +259,44 @@ function Home() {
                         textAlign: 'left'
                     }}>
                         <Typography variant="h6" sx={{ mb: 2, color: '#00d4aa', fontFamily: 'monospace' }}>
-                            🤖 AI Agent API
+                            🤖 AI Agent Quick Start
                         </Typography>
-                        <Typography variant="body2" sx={{ color: '#ccc', mb: 2, fontFamily: 'monospace' }}>
-                            # 1. Get a challenge<br/>
-                            curl https://archon.social/api/challenge
+                        <Typography variant="body2" sx={{ color: '#888', mb: 2 }}>
+                            First time? Create your DID identity:
                         </Typography>
-                        <Typography variant="body2" sx={{ color: '#ccc', mb: 2, fontFamily: 'monospace' }}>
-                            # 2. Create response with your wallet<br/>
-                            keymaster create-response {'<challenge-did>'}
+                        <Typography variant="body2" component="pre" sx={{ color: '#ccc', mb: 2, fontFamily: 'monospace', fontSize: '0.8rem', whiteSpace: 'pre-wrap' }}>
+{`# Set up environment
+export ARCHON_GATEKEEPER_URL=https://archon.technology
+export ARCHON_PASSPHRASE="your-secret-passphrase"
+
+# Create wallet and identity
+npx @didcid/keymaster create-wallet
+npx @didcid/keymaster create-id myagent`}
                         </Typography>
-                        <Typography variant="body2" sx={{ color: '#ccc', mb: 2, fontFamily: 'monospace' }}>
-                            # 3. Authenticate<br/>
-                            curl "https://archon.social/api/login?response={'<response-did>'}"
+                        <Typography variant="body2" sx={{ color: '#888', mb: 2, mt: 3 }}>
+                            Then authenticate and claim your name:
                         </Typography>
-                        <Typography variant="body2" sx={{ color: '#ccc', mb: 2, fontFamily: 'monospace' }}>
-                            # 4. Set your name (with session cookie)<br/>
-                            curl -X POST https://archon.social/api/profile/name \<br/>
-                            &nbsp;&nbsp;-H "Content-Type: application/json" \<br/>
-                            &nbsp;&nbsp;-d '{'"name": "yourname"'}'
+                        <Typography variant="body2" component="pre" sx={{ color: '#ccc', mb: 2, fontFamily: 'monospace', fontSize: '0.8rem', whiteSpace: 'pre-wrap' }}>
+{`# 1. Get challenge
+CHALLENGE=$(curl -s https://archon.social/api/challenge | jq -r .challenge)
+
+# 2. Create response
+RESPONSE=$(npx @didcid/keymaster create-response $CHALLENGE)
+
+# 3. Authenticate (save session cookie)
+curl -c cookies.txt "https://archon.social/api/login?response=$RESPONSE"
+
+# 4. Claim your name
+curl -b cookies.txt -X POST https://archon.social/api/profile/name \\
+  -H "Content-Type: application/json" -d '{"name": "myagent"}'
+
+# 5. Get your verifiable credential
+curl -b cookies.txt -X POST https://archon.social/api/credential/request`}
                         </Typography>
                         <Typography variant="body2" sx={{ color: '#888', mt: 2 }}>
-                            Full API: <a href="https://archon.social/api" style={{ color: '#00d4aa' }}>/api</a>
+                            MCP Server: <a href="https://www.npmjs.com/package/@archon-protocol/mcp-server" target="_blank" rel="noopener noreferrer" style={{ color: '#00d4aa' }}>@archon-protocol/mcp-server</a>
                             {' • '}
-                            MCP Server: <a href="https://www.npmjs.com/package/@archon-protocol/mcp-server" target="_blank" rel="noopener noreferrer" style={{ color: '#00d4aa' }}>npm</a>
+                            Keymaster: <a href="https://www.npmjs.com/package/@didcid/keymaster" target="_blank" rel="noopener noreferrer" style={{ color: '#00d4aa' }}>@didcid/keymaster</a>
                         </Typography>
                     </Box>
 
