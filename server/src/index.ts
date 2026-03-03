@@ -1158,7 +1158,7 @@ app.listen(HOST_PORT, '0.0.0.0', async () => {
             intervalSeconds: 5,
             chatty: true,
         });
-        const wallet = new WalletJson('wallet.json', 'server/data');
+        const wallet = new WalletJson('wallet.json', 'data');
         const cipher = new CipherNode();
         keymaster = new Keymaster({
             gatekeeper,
