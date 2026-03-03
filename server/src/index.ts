@@ -1035,7 +1035,7 @@ app.post('/api/credential/request', isAuthenticated, async (req: Request, res: R
         let credentialDid: string;
 
         // Schema DID for membership credentials
-        const MEMBERSHIP_SCHEMA_DID = process.env.AD_MEMBERSHIP_SCHEMA_DID || 'did:cid:bagaaiera6arptfgfleekvmssqok36mnxuun6newsz7fzwpd5szujnh2kc75a';
+        const MEMBERSHIP_SCHEMA_DID = process.env.AD_MEMBERSHIP_SCHEMA_DID || 'did:cid:bagaaieraj6e2ygpm7laaapxuz5efo2bxi436vi6ubw42b75elsscelte6kza';
         
         if (user.credentialDid) {
             // Update existing credential with schema-based format
