@@ -17,6 +17,8 @@ services:
       - NS_WALLET_PASSPHRASE=${NS_WALLET_PASSPHRASE}
       - NS_IPFS_API_URL=${NS_IPFS_API_URL:-http://host.docker.internal:5001/api/v0}
       - NS_IPNS_KEY_NAME=${NS_IPNS_KEY_NAME:-${NS_SERVICE_NAME:-name-service}}
+      - NS_MEMBERSHIP_SCHEMA_DID=${NS_MEMBERSHIP_SCHEMA_DID}
+      - NS_OWNER_DID=${NS_OWNER_DID}
     volumes:
       - ./server/data:/app/server/data
     ports:

@@ -55,9 +55,10 @@ app.use(session({
     cookie: { secure: false } // Set to true if using HTTPS
 }));
 
-let ownerDID = '';
+let serviceDID = '';
+const OWNER_DID = process.env.NS_OWNER_DID || '';
 
-async function initOwnerIdentity(): Promise<void> {
+async function initServiceIdentity(): Promise<void> {
     const currentId = await keymaster.getCurrentId();
 
     try {
@@ -65,15 +66,21 @@ async function initOwnerIdentity(): Promise<void> {
         if (!docs.didDocument?.id) {
             throw new Error('No DID found');
         }
-        ownerDID = docs.didDocument.id;
-        console.log(`${SERVICE_NAME}: ${ownerDID}`);
+        serviceDID = docs.didDocument.id;
+        console.log(`${SERVICE_NAME}: ${serviceDID}`);
     }
     catch (error) {
         console.log(`Creating ID ${SERVICE_NAME}`);
-        ownerDID = await keymaster.createId(SERVICE_NAME);
+        serviceDID = await keymaster.createId(SERVICE_NAME);
     }
 
     await keymaster.setCurrentId(SERVICE_NAME);
+
+    if (!OWNER_DID) {
+        console.warn('Warning: NS_OWNER_DID not set — no user will have owner access');
+    } else {
+        console.log(`Owner: ${OWNER_DID}`);
+    }
 
     if (currentId) {
         await keymaster.setCurrentId(currentId);
@@ -90,7 +97,7 @@ function isAuthenticated(req: Request, res: Response, next: NextFunction): void 
 function isOwner(req: Request, res: Response, next: NextFunction): void {
     isAuthenticated(req, res, () => {
         const userDid = req.session.user?.did;
-        if (userDid === ownerDID) {
+        if (userDid === OWNER_DID) {
             return next();
         }
         res.status(403).send('Owner access required');
@@ -276,7 +283,7 @@ app.get('/api/check-auth', async (req: Request, res: Response) => {
         const auth = {
             isAuthenticated,
             userDID,
-            isOwner: isAuthenticated && userDID === ownerDID,
+            isOwner: isAuthenticated && userDID === OWNER_DID,
             profile,
         };
 
@@ -666,7 +673,7 @@ app.delete('/api/admin/user/:did', isOwner, async (req: Request, res: Response) 
         }
 
         // Don't allow deleting the owner
-        if (did === ownerDID) {
+        if (did === OWNER_DID) {
             res.status(403).json({ error: 'Cannot delete the owner account' });
             return;
         }
@@ -754,7 +761,7 @@ app.post('/api/credential/request', isAuthenticated, async (req: Request, res: R
 
         // Switch to owner identity to issue credential
         await keymaster.setCurrentId(SERVICE_NAME);
-        console.log(`Issuing credential as ${SERVICE_NAME} (${ownerDID})`);
+        console.log(`Issuing credential as ${SERVICE_NAME} (${serviceDID})`);
         console.log(`User has existing credential: ${!!user.credentialDid}`);
 
         let credentialDid: string;
@@ -770,7 +777,7 @@ app.post('/api/credential/request', isAuthenticated, async (req: Request, res: R
                     `${PUBLIC_URL}/credentials/membership/v1`
                 ],
                 type: ['VerifiableCredential', 'DTGMembershipCredential'],
-                issuer: ownerDID,
+                issuer: serviceDID,
                 validFrom: new Date().toISOString(),
                 credentialSchema: {
                     id: MEMBERSHIP_SCHEMA_DID,
@@ -908,7 +915,7 @@ app.listen(HOST_PORT, '0.0.0.0', async () => {
         console.log(`${SERVICE_NAME} using gatekeeper at ${GATEKEEPER_URL}`);
     }
 
-    await initOwnerIdentity();
+    await initServiceIdentity();
     console.log(`${SERVICE_NAME} using wallet at ${WALLET_URL}`);
     console.log(`${SERVICE_NAME} listening at ${HOST_URL}`);
 });
