@@ -26,13 +26,12 @@ let db: DatabaseInterface;
 dotenv.config();
 
 const HOST_PORT = Number(process.env.NS_HOST_PORT) || 3300;
-const HOST_URL = process.env.NS_HOST_URL || 'http://localhost:3300';
 const GATEKEEPER_URL = process.env.NS_GATEKEEPER_URL || 'http://localhost:4224';
 const WALLET_URL = process.env.NS_WALLET_URL || 'http://localhost:4224';
 const NS_DATABASE_TYPE = process.env.NS_DATABASE || 'json';
 const IPFS_API_URL = process.env.NS_IPFS_API_URL || 'http://localhost:5001/api/v0';
 const SERVICE_NAME = process.env.NS_SERVICE_NAME || 'name-service';
-const PUBLIC_URL = process.env.NS_PUBLIC_URL || HOST_URL;
+const PUBLIC_URL = process.env.NS_PUBLIC_URL || `http://localhost:${HOST_PORT}`;
 const SERVICE_DOMAIN = process.env.NS_SERVICE_DOMAIN || '';
 const SESSION_SECRET = process.env.NS_SESSION_SECRET || SERVICE_NAME;
 const IPNS_KEY_NAME = process.env.NS_IPNS_KEY_NAME || SERVICE_NAME;
@@ -277,7 +276,7 @@ app.get('/api/challenge', async (req: Request, res: Response) => {
     try {
         const challenge = await keymaster.createChallenge({
             // @ts-ignore
-            callback: `${HOST_URL}/api/login`
+            callback: `${PUBLIC_URL}/api/login`
         });
         req.session.challenge = challenge;
         const challengeURL = `${WALLET_URL}?challenge=${challenge}`;
@@ -975,5 +974,5 @@ app.listen(HOST_PORT, '0.0.0.0', async () => {
 
     await initServiceIdentity();
     console.log(`${SERVICE_NAME} using wallet at ${WALLET_URL}`);
-    console.log(`${SERVICE_NAME} listening at ${HOST_URL}`);
+    console.log(`${SERVICE_NAME} listening on port ${HOST_PORT}`);
 });

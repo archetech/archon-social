@@ -105,9 +105,9 @@ export function createOAuthRoutes(getKeymaster: () => any, getMemberByDID: (did:
             }
 
             // Create DID challenge with OAuth context
-            const hostUrl = process.env.NS_HOST_URL || 'http://localhost:3300';
+            const publicUrl = process.env.NS_PUBLIC_URL || `http://localhost:${process.env.NS_HOST_PORT || 3300}`;
             const challenge = await keymaster().createChallenge({
-                callback: `${hostUrl}/oauth/callback`,
+                callback: `${publicUrl}/oauth/callback`,
                 oauth: {
                     client_id,
                     redirect_uri,
@@ -432,7 +432,7 @@ export function createOAuthRoutes(getKeymaster: () => any, getMemberByDID: (did:
      * OIDC Discovery document
      */
     router.get('/.well-known/openid-configuration', (_req: Request, res: Response) => {
-        const issuer = process.env.NS_PUBLIC_URL || process.env.NS_HOST_URL || 'http://localhost:3300';
+        const issuer = process.env.NS_PUBLIC_URL || `http://localhost:${process.env.NS_HOST_PORT || 3300}`;
         
         res.json({
             issuer,
