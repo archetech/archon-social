@@ -71,12 +71,9 @@ function Header({ title, showTagline = false } : { title: string, showTagline?: 
             }}
         >
             <Link to="/" style={{ textDecoration: 'none' }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <img src="/archon-logo.png" alt="Logo" style={{ width: 64, height: 64 }} />
-                    <Typography variant="h3" component="h1" sx={{ fontWeight: 700, color: '#1a1a1a' }}>
-                        {title}
-                    </Typography>
-                </Box>
+                <Typography variant="h3" component="h1" sx={{ fontWeight: 700, color: '#1a1a1a' }}>
+                    {title}
+                </Typography>
             </Link>
             {showTagline && (
                 <Typography variant="subtitle1" sx={{ color: '#666', fontStyle: 'italic' }}>
@@ -387,7 +384,8 @@ function ViewLogin() {
     return (
         <div className="App">
             <Header title="Login" />
-            <Table style={{ width: '800px' }}>
+            <Box sx={{ maxWidth: 800, mx: 'auto' }}>
+            <Table sx={{ width: '100%' }}>
                 <TableBody>
                     <TableRow>
                         <TableCell>Challenge:</TableCell>
@@ -436,6 +434,7 @@ function ViewLogin() {
                     </TableRow>
                 </TableBody>
             </Table>
+            </Box>
         </div>
     )
 }
@@ -764,7 +763,8 @@ function ViewProfile() {
     return (
         <div className="App">
             <Header title="Profile" />
-            <Table style={{ width: '800px' }}>
+            <Box sx={{ maxWidth: 800, mx: 'auto' }}>
+            <Table sx={{ width: '100%' }}>
                 <TableBody>
                     <TableRow>
                         <TableCell>DID:</TableCell>
@@ -848,6 +848,7 @@ function ViewProfile() {
                 <Button component={Link} to="/" variant="outlined">
                     ← Back to Home
                 </Button>
+            </Box>
             </Box>
         </div>
     )
