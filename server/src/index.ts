@@ -930,7 +930,9 @@ app.get('/api/lnurlp/:name/callback', async (req: Request, res: Response) => {
             return;
         }
 
-        const invoiceUrl = `${result.endpoint}?amount=${amount}`;
+        // LUD16 amount is in millisatoshis, convert to satoshis for Lightning endpoint
+        const amountSats = Math.floor(amount / 1000);
+        const invoiceUrl = `${result.endpoint}?amount=${amountSats}`;
         const fetchOptions: any = {};
 
         if (result.endpoint.includes('.onion') && TOR_PROXY) {
