@@ -948,8 +948,13 @@ app.get('/api/lnurlp/:name/callback', async (req: Request, res: Response) => {
             return;
         }
 
-        const data = await response.json();
-        res.json(data);
+        const data: any = await response.json();
+
+        // Normalize to LUD06 format (pr + routes)
+        res.json({
+            pr: data.pr || data.paymentRequest,
+            routes: data.routes || [],
+        });
     }
     catch (error: any) {
         console.log(error);
