@@ -36,6 +36,7 @@ const PUBLIC_URL = process.env.NS_PUBLIC_URL || HOST_URL;
 const SERVICE_DOMAIN = process.env.NS_SERVICE_DOMAIN || '';
 const SESSION_SECRET = process.env.NS_SESSION_SECRET || SERVICE_NAME;
 const IPNS_KEY_NAME = process.env.NS_IPNS_KEY_NAME || SERVICE_NAME;
+const MEMBERSHIP_SCHEMA_DID = process.env.NS_MEMBERSHIP_SCHEMA_DID || '';
 
 const app = express();
 const logins: Record<string, {
@@ -473,7 +474,43 @@ app.put('/api/profile/:did/name', isAuthenticated, async (req: Request, res: Res
             }
         }
 
-        currentDb.users[did].name = trimmedName;
+        const user = currentDb.users[did];
+        user.name = trimmedName;
+
+        // Auto-create or update credential
+        await keymaster.setCurrentId(SERVICE_NAME);
+
+        if (user.credentialDid) {
+            // Fetch existing credential and update the name claim
+            const vc: any = await keymaster.getCredential(user.credentialDid);
+            if (!vc) {
+                throw new Error('Failed to fetch existing credential');
+            }
+            vc.credentialSubject.name = `${trimmedName}@${SERVICE_DOMAIN}`;
+            vc.validFrom = new Date().toISOString();
+            const updated = await keymaster.updateCredential(user.credentialDid, vc);
+            if (!updated) {
+                throw new Error('Failed to update credential');
+            }
+
+            user.credentialIssuedAt = new Date().toISOString();
+            console.log(`Updated credential ${user.credentialDid} for ${trimmedName}`);
+        } else {
+            // Issue new credential
+            const boundCredential = await keymaster.bindCredential(did, {
+                schema: MEMBERSHIP_SCHEMA_DID,
+                validFrom: new Date().toISOString(),
+                claims: {
+                    name: `${trimmedName}@${SERVICE_DOMAIN}`
+                }
+            });
+            const credentialDid = await keymaster.issueCredential(boundCredential);
+            user.credentialDid = credentialDid;
+
+            user.credentialIssuedAt = new Date().toISOString();
+            console.log(`Issued new credential ${credentialDid} for ${trimmedName}`);
+        }
+
         db.writeDb(currentDb);
 
         res.json({ ok: true, message: `name set to ${trimmedName}` });
@@ -513,7 +550,6 @@ app.delete('/api/profile/:did/name', isAuthenticated, async (req: Request, res: 
                 console.log(`Failed to revoke credential: ${err}`);
             }
             delete user.credentialDid;
-            delete user.credentialName;
             delete user.credentialIssuedAt;
         }
 
@@ -745,10 +781,7 @@ app.get('/api/credential', isAuthenticated, async (req: Request, res: Response) 
         res.json({
             hasCredential: true,
             credentialDid: user.credentialDid,
-            credentialName: user.credentialName,
             credentialIssuedAt: user.credentialIssuedAt,
-            currentName: user.name,
-            needsUpdate: user.name !== user.credentialName,
             credential
         });
     }
@@ -759,105 +792,6 @@ app.get('/api/credential', isAuthenticated, async (req: Request, res: Response) 
     }
 });
 
-// Request/update credential
-app.post('/api/credential/request', isAuthenticated, async (req: Request, res: Response) => {
-    try {
-        const userDid = req.session.user?.did;
-        if (!userDid) {
-            res.status(401).json({ error: 'Not authenticated' });
-            return;
-        }
-
-        const currentDb = db.loadDb();
-        const user = currentDb.users?.[userDid];
-
-        if (!user) {
-            res.status(404).json({ error: 'User not found' });
-            return;
-        }
-
-        if (!user.name) {
-            res.status(400).json({ error: 'You must set a name before requesting a credential' });
-            return;
-        }
-
-        // Switch to owner identity to issue credential
-        await keymaster.setCurrentId(SERVICE_NAME);
-        console.log(`Issuing credential as ${SERVICE_NAME} (${serviceDID})`);
-        console.log(`User has existing credential: ${!!user.credentialDid}`);
-
-        let credentialDid: string;
-
-        // Schema DID for membership credentials
-        const MEMBERSHIP_SCHEMA_DID = process.env.NS_MEMBERSHIP_SCHEMA_DID || 'did:cid:bagaaieraj6e2ygpm7laaapxuz5efo2bxi436vi6ubw42b75elsscelte6kza';
-        
-        if (user.credentialDid) {
-            // Update existing credential with schema-based format
-            const vc: any = {
-                "@context": [
-                    "https://www.w3.org/ns/credentials/v2",
-                    `${PUBLIC_URL}/credentials/membership/v1`
-                ],
-                type: ['VerifiableCredential', 'DTGMembershipCredential'],
-                issuer: serviceDID,
-                validFrom: new Date().toISOString(),
-                credentialSchema: {
-                    id: MEMBERSHIP_SCHEMA_DID,
-                    type: "JsonSchema"
-                },
-                credentialSubject: {
-                    id: userDid,
-                    name: `${user.name}@${SERVICE_DOMAIN}`
-                }
-            };
-            console.log(`Updating credential ${user.credentialDid}...`);
-            const updated = await keymaster.updateCredential(user.credentialDid, vc);
-            if (!updated) {
-                throw new Error('Failed to update credential');
-            }
-            credentialDid = user.credentialDid;
-            console.log(`Updated credential ${credentialDid} for ${user.name}`);
-        } else {
-            // Issue new credential using schema + bindCredential + issueCredential
-            console.log(`Binding new credential for ${userDid} using schema ${MEMBERSHIP_SCHEMA_DID}...`);
-            const boundCredential = await keymaster.bindCredential(userDid, {
-                schema: MEMBERSHIP_SCHEMA_DID,
-                validFrom: new Date().toISOString(),
-                claims: {
-                    name: `${user.name}@${SERVICE_DOMAIN}`
-                }
-            });
-            console.log(`Bound credential, now issuing...`);
-            
-            // Issue the bound credential to get a DID
-            credentialDid = await keymaster.issueCredential(boundCredential);
-            console.log(`Issued new credential ${credentialDid} for ${user.name}`);
-        }
-
-        // Update user record
-        currentDb.users![userDid].credentialDid = credentialDid;
-        currentDb.users![userDid].credentialName = user.name;
-        currentDb.users![userDid].credentialIssuedAt = new Date().toISOString();
-        db.writeDb(currentDb);
-
-        // Fetch the issued credential to return
-        const credential = await keymaster.getCredential(credentialDid);
-
-        res.json({
-            ok: true,
-            credentialDid,
-            credential,
-            credentialName: user.name,
-            credentialIssuedAt: currentDb.users![userDid].credentialIssuedAt,
-            message: user.credentialDid ? 'Credential updated' : 'Credential issued'
-        });
-    }
-    catch (error: any) {
-        console.log(error);
-        const errorMsg = error?.message || error?.error || (typeof error === 'string' ? error : JSON.stringify(error));
-        res.status(500).json({ error: errorMsg });
-    }
-});
 
 if (process.env.NS_SERVE_CLIENT !== 'false') {
     const __dirname = path.dirname(fileURLToPath(import.meta.url));

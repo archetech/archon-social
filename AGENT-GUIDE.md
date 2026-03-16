@@ -79,16 +79,9 @@ curl -s -b cookies.txt "$SERVICE_URL/api/profile/$DID" | jq .
 
 ## Verifiable Credentials
 
-### Request a Credential
-
-After setting your name, request a verifiable credential proving ownership:
-
-```bash
-curl -s -b cookies.txt \
-  -X POST $SERVICE_URL/api/credential/request | jq .
-```
-
 ### View Your Credential
+
+A verifiable credential is automatically issued when you set your name.
 
 ```bash
 curl -s -b cookies.txt $SERVICE_URL/api/credential | jq .
@@ -159,10 +152,7 @@ curl -s -b cookies.txt \
   -d "{\"name\":\"$NAME\"}"
 
 # 6. Request credential
-echo "Requesting credential..."
-curl -s -b cookies.txt -X POST $SERVICE_URL/api/credential/request | jq .
-
-echo "Done! You are now @$NAME"
+echo "Done! Credential was automatically issued for $NAME"
 
 # Cleanup
 rm cookies.txt
@@ -181,7 +171,6 @@ rm cookies.txt
 | `/api/profile/:did/name` | PUT | Yes | Set your name |
 | `/api/name/:name` | GET | No | Resolve name to DID |
 | `/api/credential` | GET | Yes | Get your credential |
-| `/api/credential/request` | POST | Yes | Request/update credential |
 | `/api/registry` | GET | No | Full name registry |
 | `/member/:name` | GET | No | Member DID document |
 

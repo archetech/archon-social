@@ -279,7 +279,7 @@ curl -b cookies.txt -X POST ${publicUrl}/api/profile/name \\
   -H "Content-Type: application/json" -d '{"name": "myagent"}'
 
 # 5. Get your verifiable credential
-curl -b cookies.txt -X POST ${publicUrl}/api/credential/request`}
+curl -b cookies.txt ${publicUrl}/api/credential`}
                         </Typography>
                         <Typography variant="body2" sx={{ color: '#888', mt: 2 }}>
                             MCP Server: <a href="https://www.npmjs.com/package/@archon-protocol/mcp-server" target="_blank" rel="noopener noreferrer" style={{ color: '#00d4aa' }}>@archon-protocol/mcp-server</a>
@@ -857,16 +857,11 @@ function ViewProfile() {
 function ViewCredential() {
     const [credentialData, setCredentialData] = useState<any>(null);
     const [loading, setLoading] = useState<boolean>(true);
-    const [requesting, setRequesting] = useState<boolean>(false);
     const [error, setError] = useState<string>('');
-    const [serviceDomain, setServiceDomain] = useState<string>('');
     const navigate = useNavigate();
 
     const fetchCredential = async () => {
         try {
-            const configResponse = await api.get('/config');
-            setServiceDomain(configResponse.data.serviceDomain);
-
             const response = await api.get('/credential');
             setCredentialData(response.data);
         }
@@ -885,24 +880,6 @@ function ViewCredential() {
     useEffect(() => {
         fetchCredential();
     }, []);
-
-    const requestCredential = async () => {
-        setRequesting(true);
-        setError('');
-        try {
-            const response = await api.post('/credential/request');
-            setCredentialData({
-                hasCredential: true,
-                ...response.data
-            });
-        }
-        catch (err: any) {
-            setError(err.response?.data?.error || 'Failed to request credential');
-        }
-        finally {
-            setRequesting(false);
-        }
-    };
 
     if (loading) {
         return (
@@ -931,42 +908,22 @@ function ViewCredential() {
                 )}
 
                 {!credentialData?.hasCredential ? (
-                    <Box sx={{ 
-                        backgroundColor: '#f8f9fa', 
-                        borderRadius: 2, 
-                        p: 4, 
+                    <Box sx={{
+                        backgroundColor: '#f8f9fa',
+                        borderRadius: 2,
+                        p: 4,
                         textAlign: 'center',
                         border: '1px solid #e9ecef'
                     }}>
                         <Typography variant="h5" sx={{ mb: 2, color: '#2c3e50' }}>
-                            Get Your Verified Name Credential
+                            No Credential Yet
                         </Typography>
                         <Typography variant="body1" sx={{ mb: 3, color: '#666' }}>
-                            Request a verifiable credential that proves you own your name.
-                            <br />
-                            This credential is cryptographically signed and can be verified by anyone.
+                            Set a name on your profile to automatically receive a verifiable credential.
                         </Typography>
-                        
-                        {credentialData?.name ? (
-                            <Button 
-                                variant="contained" 
-                                color="primary" 
-                                onClick={requestCredential}
-                                disabled={requesting}
-                                size="large"
-                            >
-                                {requesting ? 'Requesting...' : `Request Credential for ${credentialData.name}@${serviceDomain}`}
-                            </Button>
-                        ) : (
-                            <Box>
-                                <Typography variant="body1" sx={{ color: '#e74c3c', mb: 2 }}>
-                                    You need to set a name first before requesting a credential.
-                                </Typography>
-                                <Button component={Link} to={`/profile/${credentialData?.did || ''}`} variant="outlined">
-                                    Go to Profile
-                                </Button>
-                            </Box>
-                        )}
+                        <Button component={Link} to={`/profile/${credentialData?.did || ''}`} variant="outlined">
+                            Go to Profile
+                        </Button>
                     </Box>
                 ) : (
                     <Box>
@@ -982,7 +939,7 @@ function ViewCredential() {
                                 ✓ Verified Name Credential
                             </Typography>
                             <Typography variant="h4" sx={{ fontWeight: 600, color: '#1b5e20' }}>
-                                {credentialData.credentialName}@{serviceDomain}
+                                {credentialData.credential?.credentialSubject?.name || 'Unknown'}
                             </Typography>
                             <Typography variant="body2" sx={{ color: '#666', mt: 1 }}>
                                 Issued: {credentialData.credentialIssuedAt ? 
@@ -990,30 +947,6 @@ function ViewCredential() {
                                     'Unknown'}
                             </Typography>
                         </Box>
-
-                        {credentialData.needsUpdate && (
-                            <Box sx={{ 
-                                backgroundColor: '#fff3e0', 
-                                borderRadius: 2, 
-                                p: 2, 
-                                mb: 3,
-                                border: '1px solid #ffe0b2'
-                            }}>
-                                <Typography variant="body1" sx={{ color: '#e65100' }}>
-                                    ⚠️ Your name has changed to {credentialData.currentName}@{serviceDomain}.
-                                    Update your credential to reflect your new name.
-                                </Typography>
-                                <Button 
-                                    variant="contained" 
-                                    color="warning" 
-                                    onClick={requestCredential}
-                                    disabled={requesting}
-                                    sx={{ mt: 2 }}
-                                >
-                                    {requesting ? 'Updating...' : 'Update Credential'}
-                                </Button>
-                            </Box>
-                        )}
 
                         <Typography variant="h6" sx={{ mb: 2 }}>Credential DID</Typography>
                         <Typography 

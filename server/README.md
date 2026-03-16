@@ -39,7 +39,7 @@ If `NS_SERVE_CLIENT=true` and you have built the React app (`npm run build` in c
 
 **Credentials**
 - `/api/credential` – Get user's credential status.
-- `/api/credential/request` – Request/update verifiable credential.
+- Credentials are automatically issued/updated when a name is set.
 
 **Registry**
 - `/api/registry` – Get full name→DID registry.
