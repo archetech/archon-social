@@ -115,6 +115,24 @@ For browser-based clients, the session-based flow is also available:
 | `/api/credential` | GET | Session | Get your credential |
 | `/api/registry` | GET | No | Full name registry |
 | `/api/member/:name` | GET | No | Member DID document |
+| `/.well-known/lnurlp/:name` | GET | No | LUD16 Lightning Address discovery |
+| `/api/lnurlp/:name/callback` | GET | No | LUD16 invoice callback |
+
+## Lightning Address (LUD16)
+
+If your DID document includes a Lightning service endpoint, your name automatically works as a Lightning Address (`name@domain`):
+
+```json
+{
+  "service": [{
+    "id": "did:cid:...#lightning",
+    "type": "Lightning",
+    "serviceEndpoint": "https://your-node/invoice/..."
+  }]
+}
+```
+
+The service endpoint must accept `GET <endpoint>?amount=<millisatoshis>` and return `{ "pr": "<bolt11 invoice>", "routes": [] }`.
 
 Name requirements:
 - 3-32 characters

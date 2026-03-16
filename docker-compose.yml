@@ -19,6 +19,7 @@ services:
       - NS_IPNS_KEY_NAME=${NS_IPNS_KEY_NAME:-${NS_SERVICE_NAME:-name-service}}
       - NS_MEMBERSHIP_SCHEMA_DID=${NS_MEMBERSHIP_SCHEMA_DID}
       - NS_OWNER_DID=${NS_OWNER_DID}
+      - NS_TOR_PROXY=${NS_TOR_PROXY:-}
     volumes:
       - ./server/data:/app/server/data
     ports:

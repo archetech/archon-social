@@ -9,6 +9,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import cors from 'cors';
+import { socksDispatcher } from 'fetch-socks';
 
 import CipherNode from '@didcid/cipher/node';
 import GatekeeperClient from '@didcid/gatekeeper/client';
@@ -36,6 +37,7 @@ const SERVICE_DOMAIN = process.env.NS_SERVICE_DOMAIN || '';
 const SESSION_SECRET = process.env.NS_SESSION_SECRET || SERVICE_NAME;
 const IPNS_KEY_NAME = process.env.NS_IPNS_KEY_NAME || SERVICE_NAME;
 const MEMBERSHIP_SCHEMA_DID = process.env.NS_MEMBERSHIP_SCHEMA_DID || '';
+const TOR_PROXY = process.env.NS_TOR_PROXY || '';
 
 const app = express();
 const logins: Record<string, {
@@ -168,6 +170,32 @@ function ensureUser(currentDb: any, did: string): any {
         currentDb.users[did] = { firstLogin: now, lastLogin: now, logins: 1 };
     }
     return currentDb.users[did];
+}
+
+function findNameDid(name: string): string | null {
+    const currentDb = db.loadDb();
+    if (!currentDb.users) return null;
+    for (const [did, user] of Object.entries(currentDb.users)) {
+        if (user.name?.toLowerCase() === name.toLowerCase()) {
+            return did;
+        }
+    }
+    return null;
+}
+
+async function resolveLightningEndpoint(name: string): Promise<{ did: string; endpoint: string } | null> {
+    const did = findNameDid(name);
+    if (!did) return null;
+
+    const didDoc = await keymaster.resolveDID(did);
+    if (!didDoc?.didDocument?.service) return null;
+
+    const lightning = didDoc.didDocument.service.find(
+        (s: any) => s.type === 'Lightning' || s.id?.endsWith('#lightning')
+    );
+    if (!lightning?.serviceEndpoint) return null;
+
+    return { did, endpoint: lightning.serviceEndpoint };
 }
 
 function isAuthenticated(req: Request, res: Response, next: NextFunction): void {
@@ -852,6 +880,82 @@ app.get('/api/credential', isAuthenticated, async (req: Request, res: Response) 
     }
 });
 
+
+// LUD16 Lightning Address support
+const LN_MIN_SENDABLE = 1000;        // 1 sat in msats
+const LN_MAX_SENDABLE = 100000000000; // 100k sats in msats
+
+app.get('/.well-known/lnurlp/:name', async (req: Request, res: Response) => {
+    try {
+        const name = (req.params.name as string).trim().toLowerCase();
+        const result = await resolveLightningEndpoint(name);
+
+        if (!result) {
+            res.json({ status: 'ERROR', reason: 'No Lightning service found for this name' });
+            return;
+        }
+
+        const metadata = JSON.stringify([
+            ['text/plain', `Payment to ${name}@${SERVICE_DOMAIN}`],
+            ['text/identifier', `${name}@${SERVICE_DOMAIN}`]
+        ]);
+
+        res.json({
+            tag: 'payRequest',
+            callback: `${PUBLIC_URL}/api/lnurlp/${name}/callback`,
+            minSendable: LN_MIN_SENDABLE,
+            maxSendable: LN_MAX_SENDABLE,
+            metadata,
+        });
+    }
+    catch (error: any) {
+        console.log(error);
+        res.json({ status: 'ERROR', reason: error.message || 'Internal error' });
+    }
+});
+
+app.get('/api/lnurlp/:name/callback', async (req: Request, res: Response) => {
+    try {
+        const name = (req.params.name as string).trim().toLowerCase();
+        const amount = parseInt(req.query.amount as string, 10);
+
+        if (!amount || amount < LN_MIN_SENDABLE || amount > LN_MAX_SENDABLE) {
+            res.json({ status: 'ERROR', reason: `Amount must be between ${LN_MIN_SENDABLE} and ${LN_MAX_SENDABLE} msats` });
+            return;
+        }
+
+        const result = await resolveLightningEndpoint(name);
+        if (!result) {
+            res.json({ status: 'ERROR', reason: 'No Lightning service found for this name' });
+            return;
+        }
+
+        const invoiceUrl = `${result.endpoint}?amount=${amount}`;
+        const fetchOptions: any = {};
+
+        if (result.endpoint.includes('.onion') && TOR_PROXY) {
+            const [host, port] = TOR_PROXY.split(':');
+            fetchOptions.dispatcher = socksDispatcher({
+                type: 5,
+                host: host || 'localhost',
+                port: parseInt(port || '9050'),
+            });
+        }
+
+        const response = await fetch(invoiceUrl, fetchOptions);
+        if (!response.ok) {
+            res.json({ status: 'ERROR', reason: 'Lightning service returned an error' });
+            return;
+        }
+
+        const data = await response.json();
+        res.json(data);
+    }
+    catch (error: any) {
+        console.log(error);
+        res.json({ status: 'ERROR', reason: error.message || 'Internal error' });
+    }
+});
 
 if (process.env.NS_SERVE_CLIENT !== 'false') {
     const __dirname = path.dirname(fileURLToPath(import.meta.url));

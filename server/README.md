@@ -50,6 +50,10 @@ If `NS_SERVE_CLIENT=true` and you have built the React app (`npm run build` in c
 - `/api/member/:name` – Get member's DID document by name.
 - `/directory.json` – Public registry JSON.
 
+**Lightning Address (LUD16)**
+- `/.well-known/lnurlp/:name` – LUD16 discovery (resolves name → DID → Lightning endpoint).
+- `/api/lnurlp/:name/callback` – Invoice callback (proxies to user's Lightning service).
+
 **Admin (owner only)**
 - `/api/admin` – Get full database.
 - `/api/admin/publish` – Publish registry to IPNS.
