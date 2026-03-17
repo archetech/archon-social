@@ -549,7 +549,7 @@ function ViewMembers() {
                                         variant="outlined"
                                         onClick={(e) => e.stopPropagation()}
                                     >
-                                        View DID Doc
+                                        View Details
                                     </Button>
                                 </TableCell>
                             </TableRow>
@@ -1051,9 +1051,14 @@ function ViewMember() {
                     border: '1px solid #e9ecef',
                     textAlign: 'center'
                 }}>
-                    <Typography variant="body1" sx={{ fontFamily: 'monospace', color: '#666', wordBreak: 'break-all' }}>
-                        {memberData?.id}
-                    </Typography>
+                    {memberData?.didDocument?.id && (
+                        <a href={`archon://accept?alias=${name}&did=${memberData.didDocument.id}`} style={{ color: 'inherit', textDecoration: 'none' }}>
+                            <QRCodeSVG value={`archon://accept?alias=${name}&did=${memberData.didDocument.id}`} />
+                            <Typography variant="body1" sx={{ fontFamily: 'monospace', color: '#666', wordBreak: 'break-all', mt: 2 }}>
+                                {memberData.didDocument.id}
+                            </Typography>
+                        </a>
+                    )}
                 </Box>
 
                 <Typography variant="h6" sx={{ mb: 2 }}>DID Document</Typography>
