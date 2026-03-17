@@ -377,7 +377,15 @@ export function createOAuthRoutes(getKeymaster: () => any, getMemberByDID: (did:
             // Validate client credentials
             const client = clients.get(client_id);
             if (!client || client.client_secret !== client_secret) {
-                console.log('Client auth failed:', { client_id, hasClient: !!client, secretMatch: client?.client_secret === client_secret });
+                console.log('Client auth failed:', { 
+                    client_id, 
+                    hasClient: !!client, 
+                    expectedSecret: client?.client_secret?.substring(0, 8) + '...',
+                    receivedSecret: client_secret?.substring(0, 8) + '...',
+                    authHeader: authHeader ? 'present' : 'missing',
+                    bodyClientId: req.body.client_id,
+                    bodyHasSecret: !!req.body.client_secret
+                });
                 return res.status(401).json({
                     error: 'invalid_client'
                 });
