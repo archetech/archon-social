@@ -38,6 +38,7 @@ const SESSION_SECRET = process.env.NS_SESSION_SECRET || SERVICE_NAME;
 const IPNS_KEY_NAME = process.env.NS_IPNS_KEY_NAME || SERVICE_NAME;
 const MEMBERSHIP_SCHEMA_DID = process.env.NS_MEMBERSHIP_SCHEMA_DID || '';
 const TOR_PROXY = process.env.NS_TOR_PROXY || '';
+const ADMIN_API_KEY = process.env.ARCHON_ADMIN_API_KEY || process.env.NS_ADMIN_API_KEY || '';
 
 const app = express();
 const logins: Record<string, {
@@ -1010,6 +1011,8 @@ app.listen(HOST_PORT, '0.0.0.0', async () => {
             waitUntilReady: true,
             intervalSeconds: 5,
             chatty: true,
+            // @ts-ignore - apiKey added in @didcid/* 0.4.x
+            apiKey: ADMIN_API_KEY || undefined,
         });
         console.log(`${SERVICE_NAME} using keymaster at ${process.env.NS_KEYMASTER_URL}`);
     }
