@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
+import { SignJWT, importJWK } from 'jose';
 
 const router = Router();
 
@@ -391,7 +392,7 @@ export function createOAuthRoutes(getKeymaster: () => any, getMemberByDID: (did:
                 });
             }
 
-            // Generate access token
+            // Generate access token (opaque, for /userinfo)
             const access_token = generateToken();
             const tokenData: AccessToken = {
                 token: access_token,
@@ -405,14 +406,43 @@ export function createOAuthRoutes(getKeymaster: () => any, getMemberByDID: (did:
             // Delete used auth code
             authCodes.delete(code);
 
-            // For now, use DID as id_token (or generate JWT later)
+            // Generate JWT id_token signed by archon.social's key
+            const keyPair = await keymaster().fetchKeyPair();
+            if (!keyPair) {
+                return res.status(500).json({ 
+                    error: 'server_error', 
+                    error_description: 'No signing key available' 
+                });
+            }
+
+            const member = await getMemberByDID(authCode.did);
+            const issuer = process.env.NS_PUBLIC_URL || `http://localhost:${process.env.NS_HOST_PORT || 3300}`;
+            const now = Math.floor(Date.now() / 1000);
+
+            // Import private key for jose
+            const privateKey = await importJWK(keyPair.privateJwk, 'ES256K');
+
+            // Create and sign id_token
+            const id_token = await new SignJWT({
+                name: member?.name || authCode.did,
+                preferred_username: member?.handle,
+                picture: member?.avatar,
+                did: authCode.did  // Include DID as custom claim
+            })
+                .setProtectedHeader({ alg: 'ES256K', typ: 'JWT' })
+                .setSubject(authCode.did)
+                .setIssuer(issuer)
+                .setAudience(client_id)
+                .setIssuedAt(now)
+                .setExpirationTime(now + 3600)
+                .sign(privateKey);
+
             res.json({
                 access_token,
+                id_token,
                 token_type: 'Bearer',
                 expires_in: 3600,
-                scope: authCode.scope,
-                // Include DID directly
-                did: authCode.did
+                scope: authCode.scope
             });
         } catch (error: any) {
             console.error('OAuth token error:', error);
@@ -473,7 +503,7 @@ export function createOAuthRoutes(getKeymaster: () => any, getMemberByDID: (did:
             userinfo_endpoint: `${issuer}/oauth/userinfo`,
             response_types_supported: ['code'],
             subject_types_supported: ['public'],
-            id_token_signing_alg_values_supported: ['none'], // Add ES256K later
+            id_token_signing_alg_values_supported: ['ES256K'],
             scopes_supported: ['openid', 'profile'],
             claims_supported: ['sub', 'name', 'preferred_username', 'picture']
         });
