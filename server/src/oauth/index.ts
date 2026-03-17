@@ -471,10 +471,17 @@ export function createOAuthRoutes(getKeymaster: () => any, getMemberByDID: (did:
             const signingKey = await getJWTSigningKey();
 
             // Create and sign id_token
+            // Synthesize email from handle or DID (oauth2-proxy requires email)
+            const email = member?.handle 
+                ? `${member.handle}@archon.social`
+                : `${authCode.did.split(':').pop()?.substring(0, 16)}@archon.social`;
+            
             const id_token = await new SignJWT({
                 name: member?.name || authCode.did,
                 preferred_username: member?.handle,
                 picture: member?.avatar,
+                email,
+                email_verified: true,
                 did: authCode.did  // Include DID as custom claim
             })
                 .setProtectedHeader({ alg: 'ES256', typ: 'JWT', kid: JWT_KEY_ID })
@@ -523,12 +530,19 @@ export function createOAuthRoutes(getKeymaster: () => any, getMemberByDID: (did:
 
             // Get member info
             const member = await getMemberByDID(tokenData.did);
+            
+            // Synthesize email from handle or DID
+            const email = member?.handle 
+                ? `${member.handle}@archon.social`
+                : `${tokenData.did.split(':').pop()?.substring(0, 16)}@archon.social`;
 
             res.json({
                 sub: tokenData.did,
                 name: member?.name || tokenData.did,
                 preferred_username: member?.handle,
                 picture: member?.avatar,
+                email,
+                email_verified: true,
                 updated_at: Math.floor(Date.now() / 1000)
             });
         } catch (error: any) {
@@ -564,8 +578,8 @@ export function createOAuthRoutes(getKeymaster: () => any, getMemberByDID: (did:
             response_types_supported: ['code'],
             subject_types_supported: ['public'],
             id_token_signing_alg_values_supported: ['ES256'],
-            scopes_supported: ['openid', 'profile'],
-            claims_supported: ['sub', 'name', 'preferred_username', 'picture']
+            scopes_supported: ['openid', 'profile', 'email'],
+            claims_supported: ['sub', 'name', 'preferred_username', 'picture', 'email', 'email_verified']
         });
     });
 
