@@ -50,6 +50,7 @@ const logins: Record<string, {
 
 app.use(morgan('dev'));
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));  // OAuth2 token requests use form encoding
 
 // Session setup
 app.use(session({
