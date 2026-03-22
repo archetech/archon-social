@@ -1098,19 +1098,24 @@ app.get('/.well-known/webfinger', async (req: Request, res: Response) => {
                 {
                     rel: 'self',
                     type: 'application/activity+json',
-                    href: `${PUBLIC_URL}/api/member/${name}`,
+                    href: `${PUBLIC_URL}/api/name/${name}`,
+                },
+                {
+                    rel: 'http://webfinger.net/rel/profile-page',
+                    type: 'text/html',
+                    href: `${PUBLIC_URL}/name/${name}`,
+                },
+                {
+                    rel: 'https://w3id.org/did',
+                    type: 'application/json',
+                    href: `${GATEKEEPER_URL}/api/v1/did/${did}`,
+                },
+                {
+                    rel: 'http://webfinger.net/rel/avatar',
+                    href: `${PUBLIC_URL}/api/name/${name}/avatar`,
                 },
             ],
         };
-
-        // Add profile page link if service domain is configured
-        if (SERVICE_DOMAIN) {
-            jrd.links.push({
-                rel: 'http://webfinger.net/rel/profile-page',
-                type: 'text/html',
-                href: `${PUBLIC_URL}/${name}`,
-            });
-        }
 
         res.set('Content-Type', 'application/jrd+json');
         res.json(jrd);
