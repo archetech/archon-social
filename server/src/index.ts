@@ -1108,7 +1108,7 @@ app.get('/.well-known/webfinger', async (req: Request, res: Response) => {
                 {
                     rel: 'https://w3id.org/did',
                     type: 'application/json',
-                    href: `${GATEKEEPER_URL}/api/v1/did/${did}`,
+                    href: `https://${SERVICE_DOMAIN}/api/v1/did/${did}`,
                 },
                 {
                     rel: 'http://webfinger.net/rel/avatar',
