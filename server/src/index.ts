@@ -629,6 +629,22 @@ app.delete('/api/profile/:did/name', isAuthenticated, async (req: Request, res: 
     }
 });
 
+// Valid robohash sets
+const ROBOHASH_SETS = ['set1', 'set2', 'set3', 'set4', 'set5'];
+const ROBOHASH_BGS = ['', 'bg1', 'bg2'];
+const DEFAULT_ROBOHASH_SET = 'set4';
+const DEFAULT_ROBOHASH_BG = '';
+
+function buildRobohashUrl(did: string, set?: string, bg?: string): string {
+    const validSet = set && ROBOHASH_SETS.includes(set) ? set : DEFAULT_ROBOHASH_SET;
+    const validBg = bg && ROBOHASH_BGS.includes(bg) ? bg : DEFAULT_ROBOHASH_BG;
+    let url = `https://robohash.org/${encodeURIComponent(did)}?set=${validSet}`;
+    if (validBg) {
+        url += `&bgset=${validBg}`;
+    }
+    return url;
+}
+
 // Get avatar URL
 app.get('/api/profile/:did/avatar', isAuthenticated, async (req: Request, res: Response) => {
     try {
@@ -641,12 +657,18 @@ app.get('/api/profile/:did/avatar', isAuthenticated, async (req: Request, res: R
         }
 
         const user = currentDb.users[did];
-        const defaultUrl = `https://robohash.org/${encodeURIComponent(did)}?set=set4`;
+        const robohashSet = user.robohashSet || DEFAULT_ROBOHASH_SET;
+        const robohashBg = user.robohashBg || DEFAULT_ROBOHASH_BG;
+        const defaultUrl = buildRobohashUrl(did, robohashSet, robohashBg);
 
         res.json({
             avatarUrl: user.avatarUrl || null,
             effectiveUrl: user.avatarUrl || defaultUrl,
-            isCustom: !!user.avatarUrl
+            isCustom: !!user.avatarUrl,
+            robohashSet,
+            robohashBg,
+            availableSets: ROBOHASH_SETS,
+            availableBgs: ROBOHASH_BGS
         });
     }
     catch (error) {
@@ -655,7 +677,7 @@ app.get('/api/profile/:did/avatar', isAuthenticated, async (req: Request, res: R
     }
 });
 
-// Set custom avatar URL
+// Set custom avatar URL or robohash preferences
 app.put('/api/profile/:did/avatar', isAuthenticated, async (req: Request, res: Response) => {
     try {
         const did = req.params.did as string;
@@ -665,7 +687,7 @@ app.put('/api/profile/:did/avatar', isAuthenticated, async (req: Request, res: R
             return;
         }
 
-        const { avatarUrl } = req.body;
+        const { avatarUrl, robohashSet, robohashBg } = req.body;
 
         // Validate URL if provided
         if (avatarUrl) {
@@ -681,6 +703,18 @@ app.put('/api/profile/:did/avatar', isAuthenticated, async (req: Request, res: R
             }
         }
 
+        // Validate robohash set if provided
+        if (robohashSet && !ROBOHASH_SETS.includes(robohashSet)) {
+            res.status(400).json({ ok: false, message: `Invalid robohash set. Must be one of: ${ROBOHASH_SETS.join(', ')}` });
+            return;
+        }
+
+        // Validate robohash background if provided
+        if (robohashBg && !ROBOHASH_BGS.includes(robohashBg)) {
+            res.status(400).json({ ok: false, message: `Invalid robohash background. Must be one of: ${ROBOHASH_BGS.join(', ')}` });
+            return;
+        }
+
         const currentDb = db.loadDb();
         if (!currentDb.users || !currentDb.users[did]) {
             res.status(404).send('Not found');
@@ -688,16 +722,34 @@ app.put('/api/profile/:did/avatar', isAuthenticated, async (req: Request, res: R
         }
 
         const user = currentDb.users[did];
-        user.avatarUrl = avatarUrl || null;
+        
+        // Update avatar URL if provided (null clears it)
+        if (avatarUrl !== undefined) {
+            user.avatarUrl = avatarUrl || null;
+        }
+        
+        // Update robohash preferences if provided
+        if (robohashSet !== undefined) {
+            user.robohashSet = robohashSet || DEFAULT_ROBOHASH_SET;
+        }
+        if (robohashBg !== undefined) {
+            user.robohashBg = robohashBg || DEFAULT_ROBOHASH_BG;
+        }
+        
         db.writeDb(currentDb);
 
-        const defaultUrl = `https://robohash.org/${encodeURIComponent(did)}?set=set4`;
+        const effectiveSet = user.robohashSet || DEFAULT_ROBOHASH_SET;
+        const effectiveBg = user.robohashBg || DEFAULT_ROBOHASH_BG;
+        const defaultUrl = buildRobohashUrl(did, effectiveSet, effectiveBg);
 
         res.json({
             ok: true,
             avatarUrl: user.avatarUrl,
             effectiveUrl: user.avatarUrl || defaultUrl,
-            message: avatarUrl ? 'Avatar URL set' : 'Avatar URL cleared'
+            isCustom: !!user.avatarUrl,
+            robohashSet: effectiveSet,
+            robohashBg: effectiveBg,
+            message: avatarUrl ? 'Avatar URL set' : 'Avatar settings updated'
         });
     }
     catch (error) {
@@ -724,13 +776,19 @@ app.delete('/api/profile/:did/avatar', isAuthenticated, async (req: Request, res
 
         const user = currentDb.users[did];
         delete user.avatarUrl;
+        // Keep robohash preferences, only clear custom URL
         db.writeDb(currentDb);
 
-        const defaultUrl = `https://robohash.org/${encodeURIComponent(did)}?set=set4`;
+        const effectiveSet = user.robohashSet || DEFAULT_ROBOHASH_SET;
+        const effectiveBg = user.robohashBg || DEFAULT_ROBOHASH_BG;
+        const defaultUrl = buildRobohashUrl(did, effectiveSet, effectiveBg);
 
         res.json({
             ok: true,
             effectiveUrl: defaultUrl,
+            isCustom: false,
+            robohashSet: effectiveSet,
+            robohashBg: effectiveBg,
             message: 'Avatar reverted to default'
         });
     }
@@ -881,25 +939,25 @@ app.get('/api/name/:name/avatar', async (req: Request, res: Response) => {
         const currentDb = db.loadDb();
 
         let userDid: string | null = null;
-        let avatarUrl: string | null = null;
+        let user: any = null;
 
         if (currentDb.users) {
-            for (const [did, user] of Object.entries(currentDb.users)) {
-                if (user.name?.toLowerCase() === name) {
+            for (const [did, u] of Object.entries(currentDb.users)) {
+                if (u.name?.toLowerCase() === name) {
                     userDid = did;
-                    avatarUrl = user.avatarUrl || null;
+                    user = u;
                     break;
                 }
             }
         }
 
-        if (!userDid) {
+        if (!userDid || !user) {
             res.status(404).json({ error: 'Name not found' });
             return;
         }
 
-        // Use custom avatar URL if set, otherwise robohash based on DID
-        const targetUrl = avatarUrl || `https://robohash.org/${encodeURIComponent(userDid)}?set=set4`;
+        // Use custom avatar URL if set, otherwise robohash with user preferences
+        const targetUrl = user.avatarUrl || buildRobohashUrl(userDid, user.robohashSet, user.robohashBg);
         res.redirect(302, targetUrl);
     }
     catch (error) {

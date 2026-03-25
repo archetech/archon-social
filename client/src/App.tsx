@@ -7,7 +7,7 @@ import {
     Routes,
     Route,
 } from "react-router-dom";
-import { Alert, Box, Button, TextField, Typography } from '@mui/material';
+import { Alert, Box, Button, TextField, Typography, Select, MenuItem, FormControl, InputLabel } from '@mui/material';
 import { Table, TableBody, TableRow, TableCell } from '@mui/material';
 import axios from 'axios';
 import { format, differenceInDays } from 'date-fns';
@@ -660,6 +660,22 @@ function ViewProfile() {
     const [avatarError, setAvatarError] = useState<string>("");
     const [effectiveAvatarUrl, setEffectiveAvatarUrl] = useState<string>("");
     const [isCustomAvatar, setIsCustomAvatar] = useState<boolean>(false);
+    const [robohashSet, setRobohashSet] = useState<string>("set4");
+    const [robohashBg, setRobohashBg] = useState<string>("");
+
+    const ROBOHASH_SET_LABELS: Record<string, string> = {
+        'set1': '🤖 Robots',
+        'set2': '👾 Monsters',
+        'set3': '🦾 Robot Heads',
+        'set4': '🐱 Kittens',
+        'set5': '👤 Humans'
+    };
+
+    const ROBOHASH_BG_LABELS: Record<string, string> = {
+        '': 'None',
+        'bg1': 'Scene 1',
+        'bg2': 'Scene 2'
+    };
 
     useEffect(() => {
         const init = async () => {
@@ -686,6 +702,8 @@ function ViewProfile() {
                     setNewAvatarUrl(avatarResponse.data.avatarUrl || "");
                     setEffectiveAvatarUrl(avatarResponse.data.effectiveUrl);
                     setIsCustomAvatar(avatarResponse.data.isCustom);
+                    setRobohashSet(avatarResponse.data.robohashSet || "set4");
+                    setRobohashBg(avatarResponse.data.robohashBg || "");
                 } catch {
                     // Avatar endpoint might not exist yet, use default
                     setEffectiveAvatarUrl(`https://robohash.org/${encodeURIComponent(did || '')}?set=set4`);
@@ -739,9 +757,29 @@ function ViewProfile() {
             setAvatarUrl(response.data.avatarUrl || "");
             setEffectiveAvatarUrl(response.data.effectiveUrl);
             setIsCustomAvatar(!!response.data.avatarUrl);
+            setRobohashSet(response.data.robohashSet || "set4");
+            setRobohashBg(response.data.robohashBg || "");
         }
         catch (error: any) {
             const message = error.response?.data?.message || error.response?.data?.error || 'Failed to save avatar';
+            setAvatarError(message);
+        }
+    }
+
+    async function updateRobohashSettings(newSet?: string, newBg?: string) {
+        setAvatarError('');
+        try {
+            const payload: any = {};
+            if (newSet !== undefined) payload.robohashSet = newSet;
+            if (newBg !== undefined) payload.robohashBg = newBg;
+            
+            const response = await api.put(`/profile/${profile.did}/avatar`, payload);
+            setEffectiveAvatarUrl(response.data.effectiveUrl);
+            setRobohashSet(response.data.robohashSet || "set4");
+            setRobohashBg(response.data.robohashBg || "");
+        }
+        catch (error: any) {
+            const message = error.response?.data?.message || error.response?.data?.error || 'Failed to update settings';
             setAvatarError(message);
         }
     }
@@ -754,6 +792,8 @@ function ViewProfile() {
             setNewAvatarUrl("");
             setEffectiveAvatarUrl(response.data.effectiveUrl);
             setIsCustomAvatar(false);
+            setRobohashSet(response.data.robohashSet || "set4");
+            setRobohashBg(response.data.robohashBg || "");
         }
         catch (error: any) {
             const message = error.response?.data?.message || error.response?.data?.error || 'Failed to reset avatar';
@@ -806,7 +846,7 @@ function ViewProfile() {
                         <TableCell>Avatar:</TableCell>
                         <TableCell>
                             <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 3 }}>
-                                <Box sx={{ textAlign: 'center' }}>
+                                <Box sx={{ textAlign: 'center', minWidth: 120 }}>
                                     <img 
                                         src={effectiveAvatarUrl} 
                                         alt="Avatar" 
@@ -820,13 +860,49 @@ function ViewProfile() {
                                     {!isCustomAvatar && (
                                         <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: '#888' }}>
                                             <a href="https://robohash.org" target="_blank" rel="noopener noreferrer" style={{ color: '#888' }}>
-                                                🤖 Robohash.org
+                                                Robohash.org
                                             </a>
                                         </Typography>
                                     )}
                                 </Box>
                                 {profile.isUser && (
                                     <Box sx={{ flex: 1 }}>
+                                        {!isCustomAvatar && (
+                                            <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
+                                                <FormControl size="small" sx={{ minWidth: 140 }}>
+                                                    <InputLabel>Style</InputLabel>
+                                                    <Select
+                                                        value={robohashSet}
+                                                        label="Style"
+                                                        onChange={(e) => {
+                                                            const newSet = e.target.value;
+                                                            setRobohashSet(newSet);
+                                                            updateRobohashSettings(newSet, undefined);
+                                                        }}
+                                                    >
+                                                        {Object.entries(ROBOHASH_SET_LABELS).map(([value, label]) => (
+                                                            <MenuItem key={value} value={value}>{label}</MenuItem>
+                                                        ))}
+                                                    </Select>
+                                                </FormControl>
+                                                <FormControl size="small" sx={{ minWidth: 120 }}>
+                                                    <InputLabel>Background</InputLabel>
+                                                    <Select
+                                                        value={robohashBg}
+                                                        label="Background"
+                                                        onChange={(e) => {
+                                                            const newBg = e.target.value;
+                                                            setRobohashBg(newBg);
+                                                            updateRobohashSettings(undefined, newBg);
+                                                        }}
+                                                    >
+                                                        {Object.entries(ROBOHASH_BG_LABELS).map(([value, label]) => (
+                                                            <MenuItem key={value} value={value}>{label}</MenuItem>
+                                                        ))}
+                                                    </Select>
+                                                </FormControl>
+                                            </Box>
+                                        )}
                                         <TextField
                                             label="Custom Avatar URL"
                                             placeholder="https://example.com/avatar.png"
@@ -843,7 +919,7 @@ function ViewProfile() {
                                                 onClick={saveAvatar}
                                                 disabled={newAvatarUrl === avatarUrl}
                                             >
-                                                Save
+                                                {newAvatarUrl ? 'Use Custom URL' : 'Save'}
                                             </Button>
                                             {isCustomAvatar && (
                                                 <Button
@@ -852,7 +928,7 @@ function ViewProfile() {
                                                     color="secondary"
                                                     onClick={resetAvatar}
                                                 >
-                                                    Reset to Default
+                                                    Use Robohash
                                                 </Button>
                                             )}
                                         </Box>
