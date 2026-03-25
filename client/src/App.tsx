@@ -283,6 +283,9 @@ curl -X PUT ${publicUrl}/api/name \\
                             {' • '}
                             {publicUrl && <a href={`https://ipfs.io/ipns/${new URL(publicUrl).host}`} target="_blank" rel="noopener noreferrer" style={{ color: '#3498db' }}>IPNS Registry</a>}
                         </Typography>
+                        <Typography variant="caption" sx={{ color: '#aaa', display: 'block', mt: 1 }}>
+                            🤖 Robots lovingly delivered by <a href="https://robohash.org" target="_blank" rel="noopener noreferrer" style={{ color: '#aaa' }}>Robohash.org</a>
+                        </Typography>
                     </Box>
                 </Box>
             )}
@@ -652,6 +655,11 @@ function ViewProfile() {
     const [newName, setNewName] = useState<string>("");
     const [nameError, setNameError] = useState<string>("");
     const [nameAvailable, setNameAvailable] = useState<boolean | null>(null);
+    const [avatarUrl, setAvatarUrl] = useState<string>("");
+    const [newAvatarUrl, setNewAvatarUrl] = useState<string>("");
+    const [avatarError, setAvatarError] = useState<string>("");
+    const [effectiveAvatarUrl, setEffectiveAvatarUrl] = useState<string>("");
+    const [isCustomAvatar, setIsCustomAvatar] = useState<boolean>(false);
 
     useEffect(() => {
         const init = async () => {
@@ -669,6 +677,18 @@ function ViewProfile() {
                 if (profile.name) {
                     setCurrentName(profile.name);
                     setNewName(profile.name);
+                }
+
+                // Fetch avatar info
+                try {
+                    const avatarResponse = await api.get(`/profile/${did}/avatar`);
+                    setAvatarUrl(avatarResponse.data.avatarUrl || "");
+                    setNewAvatarUrl(avatarResponse.data.avatarUrl || "");
+                    setEffectiveAvatarUrl(avatarResponse.data.effectiveUrl);
+                    setIsCustomAvatar(avatarResponse.data.isCustom);
+                } catch {
+                    // Avatar endpoint might not exist yet, use default
+                    setEffectiveAvatarUrl(`https://robohash.org/${encodeURIComponent(did || '')}?set=set4`);
                 }
 
             }
@@ -709,6 +729,35 @@ function ViewProfile() {
         catch (error: any) {
             const message = error.response?.data?.message || error.response?.data?.error || 'Failed to delete name';
             setNameError(message);
+        }
+    }
+
+    async function saveAvatar() {
+        setAvatarError('');
+        try {
+            const response = await api.put(`/profile/${profile.did}/avatar`, { avatarUrl: newAvatarUrl.trim() || null });
+            setAvatarUrl(response.data.avatarUrl || "");
+            setEffectiveAvatarUrl(response.data.effectiveUrl);
+            setIsCustomAvatar(!!response.data.avatarUrl);
+        }
+        catch (error: any) {
+            const message = error.response?.data?.message || error.response?.data?.error || 'Failed to save avatar';
+            setAvatarError(message);
+        }
+    }
+
+    async function resetAvatar() {
+        setAvatarError('');
+        try {
+            const response = await api.delete(`/profile/${profile.did}/avatar`);
+            setAvatarUrl("");
+            setNewAvatarUrl("");
+            setEffectiveAvatarUrl(response.data.effectiveUrl);
+            setIsCustomAvatar(false);
+        }
+        catch (error: any) {
+            const message = error.response?.data?.message || error.response?.data?.error || 'Failed to reset avatar';
+            setAvatarError(message);
         }
     }
 
@@ -753,6 +802,68 @@ function ViewProfile() {
             <Box sx={{ maxWidth: 800, mx: 'auto' }}>
             <Table sx={{ width: '100%' }}>
                 <TableBody>
+                    <TableRow>
+                        <TableCell>Avatar:</TableCell>
+                        <TableCell>
+                            <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 3 }}>
+                                <Box sx={{ textAlign: 'center' }}>
+                                    <img 
+                                        src={effectiveAvatarUrl} 
+                                        alt="Avatar" 
+                                        style={{ 
+                                            width: 100, 
+                                            height: 100, 
+                                            borderRadius: 8,
+                                            border: '2px solid #e9ecef'
+                                        }} 
+                                    />
+                                    {!isCustomAvatar && (
+                                        <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: '#888' }}>
+                                            <a href="https://robohash.org" target="_blank" rel="noopener noreferrer" style={{ color: '#888' }}>
+                                                🤖 Robohash.org
+                                            </a>
+                                        </Typography>
+                                    )}
+                                </Box>
+                                {profile.isUser && (
+                                    <Box sx={{ flex: 1 }}>
+                                        <TextField
+                                            label="Custom Avatar URL"
+                                            placeholder="https://example.com/avatar.png"
+                                            value={newAvatarUrl}
+                                            onChange={(e) => { setNewAvatarUrl(e.target.value); setAvatarError(''); }}
+                                            fullWidth
+                                            size="small"
+                                            sx={{ mb: 1 }}
+                                        />
+                                        <Box sx={{ display: 'flex', gap: 1 }}>
+                                            <Button
+                                                variant="outlined"
+                                                size="small"
+                                                onClick={saveAvatar}
+                                                disabled={newAvatarUrl === avatarUrl}
+                                            >
+                                                Save
+                                            </Button>
+                                            {isCustomAvatar && (
+                                                <Button
+                                                    variant="outlined"
+                                                    size="small"
+                                                    color="secondary"
+                                                    onClick={resetAvatar}
+                                                >
+                                                    Reset to Default
+                                                </Button>
+                                            )}
+                                        </Box>
+                                        {avatarError && (
+                                            <Alert severity="error" sx={{ mt: 1 }}>{avatarError}</Alert>
+                                        )}
+                                    </Box>
+                                )}
+                            </Box>
+                        </TableCell>
+                    </TableRow>
                     <TableRow>
                         <TableCell>DID:</TableCell>
                         <TableCell>
