@@ -635,10 +635,10 @@ const ROBOHASH_BGS = ['', 'bg1', 'bg2'];
 const DEFAULT_ROBOHASH_SET = 'set4';
 const DEFAULT_ROBOHASH_BG = '';
 
-function buildRobohashUrl(did: string, set?: string, bg?: string): string {
+function buildRobohashUrl(identifier: string, set?: string, bg?: string): string {
     const validSet = set && ROBOHASH_SETS.includes(set) ? set : DEFAULT_ROBOHASH_SET;
     const validBg = bg && ROBOHASH_BGS.includes(bg) ? bg : DEFAULT_ROBOHASH_BG;
-    let url = `https://robohash.org/${encodeURIComponent(did)}?set=${validSet}`;
+    let url = `https://robohash.org/${encodeURIComponent(identifier)}?set=${validSet}`;
     if (validBg) {
         url += `&bgset=${validBg}`;
     }
@@ -659,7 +659,9 @@ app.get('/api/profile/:did/avatar', isAuthenticated, async (req: Request, res: R
         const user = currentDb.users[did];
         const robohashSet = user.robohashSet || DEFAULT_ROBOHASH_SET;
         const robohashBg = user.robohashBg || DEFAULT_ROBOHASH_BG;
-        const defaultUrl = buildRobohashUrl(did, robohashSet, robohashBg);
+        // Use name for robohash if available, fall back to DID
+        const robohashIdentifier = user.name || did;
+        const defaultUrl = buildRobohashUrl(robohashIdentifier, robohashSet, robohashBg);
 
         res.json({
             avatarUrl: user.avatarUrl || null,
@@ -740,7 +742,9 @@ app.put('/api/profile/:did/avatar', isAuthenticated, async (req: Request, res: R
 
         const effectiveSet = user.robohashSet || DEFAULT_ROBOHASH_SET;
         const effectiveBg = user.robohashBg || DEFAULT_ROBOHASH_BG;
-        const defaultUrl = buildRobohashUrl(did, effectiveSet, effectiveBg);
+        // Use name for robohash if available, fall back to DID
+        const robohashIdentifier = user.name || did;
+        const defaultUrl = buildRobohashUrl(robohashIdentifier, effectiveSet, effectiveBg);
 
         res.json({
             ok: true,
@@ -781,7 +785,9 @@ app.delete('/api/profile/:did/avatar', isAuthenticated, async (req: Request, res
 
         const effectiveSet = user.robohashSet || DEFAULT_ROBOHASH_SET;
         const effectiveBg = user.robohashBg || DEFAULT_ROBOHASH_BG;
-        const defaultUrl = buildRobohashUrl(did, effectiveSet, effectiveBg);
+        // Use name for robohash if available, fall back to DID
+        const robohashIdentifier = user.name || did;
+        const defaultUrl = buildRobohashUrl(robohashIdentifier, effectiveSet, effectiveBg);
 
         res.json({
             ok: true,
@@ -956,8 +962,8 @@ app.get('/api/name/:name/avatar', async (req: Request, res: Response) => {
             return;
         }
 
-        // Use custom avatar URL if set, otherwise robohash with user preferences
-        const targetUrl = user.avatarUrl || buildRobohashUrl(userDid, user.robohashSet, user.robohashBg);
+        // Use custom avatar URL if set, otherwise robohash with name (not DID)
+        const targetUrl = user.avatarUrl || buildRobohashUrl(name, user.robohashSet, user.robohashBg);
         res.redirect(302, targetUrl);
     }
     catch (error) {

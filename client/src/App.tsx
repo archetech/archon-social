@@ -705,8 +705,9 @@ function ViewProfile() {
                     setRobohashSet(avatarResponse.data.robohashSet || "set4");
                     setRobohashBg(avatarResponse.data.robohashBg || "");
                 } catch {
-                    // Avatar endpoint might not exist yet, use default
-                    setEffectiveAvatarUrl(`https://robohash.org/${encodeURIComponent(did || '')}?set=set4`);
+                    // Avatar endpoint might not exist yet, use default (prefer name over DID)
+                    const identifier = profile?.name || did || '';
+                    setEffectiveAvatarUrl(`https://robohash.org/${encodeURIComponent(identifier)}?set=set4`);
                 }
 
             }
