@@ -629,6 +629,117 @@ app.delete('/api/profile/:did/name', isAuthenticated, async (req: Request, res: 
     }
 });
 
+// Get avatar URL
+app.get('/api/profile/:did/avatar', isAuthenticated, async (req: Request, res: Response) => {
+    try {
+        const did = req.params.did as string;
+        const currentDb = db.loadDb();
+
+        if (!currentDb.users || !currentDb.users[did]) {
+            res.status(404).send('Not found');
+            return;
+        }
+
+        const user = currentDb.users[did];
+        const defaultUrl = `https://robohash.org/${encodeURIComponent(did)}?set=set4`;
+
+        res.json({
+            avatarUrl: user.avatarUrl || null,
+            effectiveUrl: user.avatarUrl || defaultUrl,
+            isCustom: !!user.avatarUrl
+        });
+    }
+    catch (error) {
+        console.log(error);
+        res.status(500).send(String(error));
+    }
+});
+
+// Set custom avatar URL
+app.put('/api/profile/:did/avatar', isAuthenticated, async (req: Request, res: Response) => {
+    try {
+        const did = req.params.did as string;
+
+        if (!req.session.user || req.session.user.did !== did) {
+            res.status(403).json({ message: 'Forbidden' });
+            return;
+        }
+
+        const { avatarUrl } = req.body;
+
+        // Validate URL if provided
+        if (avatarUrl) {
+            try {
+                const url = new URL(avatarUrl);
+                if (!['http:', 'https:'].includes(url.protocol)) {
+                    res.status(400).json({ ok: false, message: 'Avatar URL must use http or https' });
+                    return;
+                }
+            } catch {
+                res.status(400).json({ ok: false, message: 'Invalid URL format' });
+                return;
+            }
+        }
+
+        const currentDb = db.loadDb();
+        if (!currentDb.users || !currentDb.users[did]) {
+            res.status(404).send('Not found');
+            return;
+        }
+
+        const user = currentDb.users[did];
+        user.avatarUrl = avatarUrl || null;
+        db.writeDb(currentDb);
+
+        const defaultUrl = `https://robohash.org/${encodeURIComponent(did)}?set=set4`;
+
+        res.json({
+            ok: true,
+            avatarUrl: user.avatarUrl,
+            effectiveUrl: user.avatarUrl || defaultUrl,
+            message: avatarUrl ? 'Avatar URL set' : 'Avatar URL cleared'
+        });
+    }
+    catch (error) {
+        console.log(error);
+        res.status(500).send(String(error));
+    }
+});
+
+// Delete custom avatar URL (revert to robohash default)
+app.delete('/api/profile/:did/avatar', isAuthenticated, async (req: Request, res: Response) => {
+    try {
+        const did = req.params.did as string;
+
+        if (!req.session.user || req.session.user.did !== did) {
+            res.status(403).json({ message: 'Forbidden' });
+            return;
+        }
+
+        const currentDb = db.loadDb();
+        if (!currentDb.users || !currentDb.users[did]) {
+            res.status(404).send('Not found');
+            return;
+        }
+
+        const user = currentDb.users[did];
+        delete user.avatarUrl;
+        db.writeDb(currentDb);
+
+        const defaultUrl = `https://robohash.org/${encodeURIComponent(did)}?set=set4`;
+
+        res.json({
+            ok: true,
+            effectiveUrl: defaultUrl,
+            message: 'Avatar reverted to default'
+        });
+    }
+    catch (error) {
+        console.log(error);
+        res.status(500).send(String(error));
+    }
+});
+
 // Stateless name claim (Bearer token auth)
 app.put('/api/name', async (req: Request, res: Response) => {
     try {
@@ -756,6 +867,40 @@ app.get('/api/name/:name', async (req: Request, res: Response) => {
         }
 
         res.status(404).json({ error: 'Name not found' });
+    }
+    catch (error) {
+        console.log(error);
+        res.status(500).send(String(error));
+    }
+});
+
+// Avatar endpoint - redirect to custom URL or robohash default
+app.get('/api/name/:name/avatar', async (req: Request, res: Response) => {
+    try {
+        const name = (req.params.name as string).trim().toLowerCase();
+        const currentDb = db.loadDb();
+
+        let userDid: string | null = null;
+        let avatarUrl: string | null = null;
+
+        if (currentDb.users) {
+            for (const [did, user] of Object.entries(currentDb.users)) {
+                if (user.name?.toLowerCase() === name) {
+                    userDid = did;
+                    avatarUrl = user.avatarUrl || null;
+                    break;
+                }
+            }
+        }
+
+        if (!userDid) {
+            res.status(404).json({ error: 'Name not found' });
+            return;
+        }
+
+        // Use custom avatar URL if set, otherwise robohash based on DID
+        const targetUrl = avatarUrl || `https://robohash.org/${encodeURIComponent(userDid)}?set=set4`;
+        res.redirect(302, targetUrl);
     }
     catch (error) {
         console.log(error);
