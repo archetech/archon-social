@@ -538,6 +538,18 @@ function ViewMembers() {
                                 }}
                                 onClick={() => navigate(`/profile/${entry.did}`)}
                             >
+                                <TableCell sx={{ width: 60, padding: '8px 16px' }}>
+                                    <img 
+                                        src={`/api/name/${entry.name}/avatar`}
+                                        alt={`${entry.name} avatar`}
+                                        style={{ 
+                                            width: 40, 
+                                            height: 40, 
+                                            borderRadius: 8,
+                                            border: '1px solid #e9ecef'
+                                        }}
+                                    />
+                                </TableCell>
                                 <TableCell sx={{ fontWeight: 600, fontSize: '1.1rem', color: '#2c3e50' }}>
                                     {entry.name}@{serviceDomain}
                                 </TableCell>
