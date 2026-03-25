@@ -6,6 +6,8 @@ import express, {
 import session from 'express-session';
 import morgan from 'morgan';
 import path from 'path';
+import fs from 'fs';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import cors from 'cors';
@@ -586,9 +588,15 @@ app.put('/api/profile/:did/name', isAuthenticated, async (req: Request, res: Res
         }
 
         const user = currentDb.users[did];
+        const oldName = user.name;
         user.name = trimmedName;
         await issueOrUpdateCredential(did, user, trimmedName);
         db.writeDb(currentDb);
+
+        // Invalidate old avatar cache if name changed
+        if (oldName && oldName !== trimmedName) {
+            invalidateAvatarCache(oldName);
+        }
 
         res.json({ ok: true, message: `name set to ${trimmedName}` });
     }
@@ -621,6 +629,11 @@ app.delete('/api/profile/:did/name', isAuthenticated, async (req: Request, res: 
         delete user.name;
         db.writeDb(currentDb);
 
+        // Invalidate avatar cache for deleted name
+        if (deletedName) {
+            invalidateAvatarCache(deletedName);
+        }
+
         res.json({ ok: true, message: `name '${deletedName}' deleted and credential revoked` });
     }
     catch (error) {
@@ -635,6 +648,16 @@ const ROBOHASH_BGS = ['', 'bg1', 'bg2'];
 const DEFAULT_ROBOHASH_SET = 'set4';
 const DEFAULT_ROBOHASH_BG = '';
 
+// Avatar cache configuration
+const AVATAR_CACHE_DIR = process.env.NS_AVATAR_CACHE_DIR || 'data/avatar-cache';
+const AVATAR_CACHE_MAX_AGE = 60 * 60 * 24 * 7; // 7 days in seconds
+
+// Ensure avatar cache directory exists
+if (!fs.existsSync(AVATAR_CACHE_DIR)) {
+    fs.mkdirSync(AVATAR_CACHE_DIR, { recursive: true });
+    console.log(`Created avatar cache directory: ${AVATAR_CACHE_DIR}`);
+}
+
 function buildRobohashUrl(identifier: string, set?: string, bg?: string): string {
     const validSet = set && ROBOHASH_SETS.includes(set) ? set : DEFAULT_ROBOHASH_SET;
     const validBg = bg && ROBOHASH_BGS.includes(bg) ? bg : DEFAULT_ROBOHASH_BG;
@@ -643,6 +666,39 @@ function buildRobohashUrl(identifier: string, set?: string, bg?: string): string
         url += `&bgset=${validBg}`;
     }
     return url;
+}
+
+function getAvatarCacheKey(name: string, set: string, bg: string): string {
+    const data = `${name}:${set}:${bg}`;
+    return crypto.createHash('sha256').update(data).digest('hex').substring(0, 16);
+}
+
+function getAvatarCachePath(cacheKey: string): string {
+    return path.join(AVATAR_CACHE_DIR, `${cacheKey}.png`);
+}
+
+async function fetchAndCacheAvatar(url: string, cachePath: string): Promise<Buffer> {
+    const response = await fetch(url);
+    if (!response.ok) {
+        throw new Error(`Failed to fetch avatar: ${response.statusText}`);
+    }
+    const buffer = Buffer.from(await response.arrayBuffer());
+    fs.writeFileSync(cachePath, buffer);
+    return buffer;
+}
+
+function invalidateAvatarCache(name: string): void {
+    // Invalidate all possible cache combinations for this name
+    for (const set of ROBOHASH_SETS) {
+        for (const bg of ROBOHASH_BGS) {
+            const cacheKey = getAvatarCacheKey(name, set, bg);
+            const cachePath = getAvatarCachePath(cacheKey);
+            if (fs.existsSync(cachePath)) {
+                fs.unlinkSync(cachePath);
+                console.log(`Invalidated avatar cache: ${cachePath}`);
+            }
+        }
+    }
 }
 
 // Get avatar URL
@@ -739,6 +795,11 @@ app.put('/api/profile/:did/avatar', isAuthenticated, async (req: Request, res: R
         }
         
         db.writeDb(currentDb);
+
+        // Invalidate avatar cache if user has a name
+        if (user.name) {
+            invalidateAvatarCache(user.name);
+        }
 
         const effectiveSet = user.robohashSet || DEFAULT_ROBOHASH_SET;
         const effectiveBg = user.robohashBg || DEFAULT_ROBOHASH_BG;
@@ -938,7 +999,7 @@ app.get('/api/name/:name', async (req: Request, res: Response) => {
     }
 });
 
-// Avatar endpoint - redirect to custom URL or robohash default
+// Avatar endpoint - serve cached robohash or redirect to custom URL
 app.get('/api/name/:name/avatar', async (req: Request, res: Response) => {
     try {
         const name = (req.params.name as string).trim().toLowerCase();
@@ -962,9 +1023,33 @@ app.get('/api/name/:name/avatar', async (req: Request, res: Response) => {
             return;
         }
 
-        // Use custom avatar URL if set, otherwise robohash with name (not DID)
-        const targetUrl = user.avatarUrl || buildRobohashUrl(name, user.robohashSet, user.robohashBg);
-        res.redirect(302, targetUrl);
+        // For custom avatar URLs, redirect (don't cache external images)
+        if (user.avatarUrl) {
+            res.redirect(302, user.avatarUrl);
+            return;
+        }
+
+        // For robohash avatars, serve from cache
+        const robohashSet = user.robohashSet || DEFAULT_ROBOHASH_SET;
+        const robohashBg = user.robohashBg || DEFAULT_ROBOHASH_BG;
+        const cacheKey = getAvatarCacheKey(name, robohashSet, robohashBg);
+        const cachePath = getAvatarCachePath(cacheKey);
+
+        let imageBuffer: Buffer;
+
+        if (fs.existsSync(cachePath)) {
+            // Serve from cache
+            imageBuffer = fs.readFileSync(cachePath);
+        } else {
+            // Fetch from robohash and cache
+            const robohashUrl = buildRobohashUrl(name, robohashSet, robohashBg);
+            imageBuffer = await fetchAndCacheAvatar(robohashUrl, cachePath);
+            console.log(`Cached avatar for ${name}: ${cachePath}`);
+        }
+
+        res.set('Content-Type', 'image/png');
+        res.set('Cache-Control', `public, max-age=${AVATAR_CACHE_MAX_AGE}`);
+        res.send(imageBuffer);
     }
     catch (error) {
         console.log(error);
