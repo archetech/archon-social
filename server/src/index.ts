@@ -29,13 +29,19 @@ dotenv.config();
 const HOST_PORT = Number(process.env.ARCHON_HERALD_PORT) || 4230;
 const DRAWBRIDGE_PORT = Number(process.env.ARCHON_DRAWBRIDGE_PORT) || 4222;
 const DRAWBRIDGE_PUBLIC_HOST = process.env.ARCHON_DRAWBRIDGE_PUBLIC_HOST || `http://localhost:${DRAWBRIDGE_PORT}`;
+// archon.social runs standalone (no Drawbridge in front), so the public URL
+// must be overridable directly. In the monorepo Herald is mounted at /names
+// by Drawbridge; in a standalone deployment it sits at the domain root.
+const PUBLIC_URL_OVERRIDE = process.env.ARCHON_HERALD_PUBLIC_URL;
 const GATEKEEPER_URL = process.env.ARCHON_GATEKEEPER_URL || 'http://localhost:4224';
 const WALLET_URL = process.env.ARCHON_HERALD_WALLET_URL || 'https://wallet.archon.technology';
 const HERALD_DATABASE_TYPE = process.env.ARCHON_HERALD_DB || 'json';
 const DATA_DIR = process.env.ARCHON_HERALD_DATA_DIR || '/app/server/data';
 const IPFS_API_URL = process.env.ARCHON_HERALD_IPFS_API_URL || 'http://localhost:5001/api/v0';
 const SERVICE_NAME = process.env.ARCHON_HERALD_NAME || 'name-service';
-const PUBLIC_URL = `${DRAWBRIDGE_PUBLIC_HOST.replace(/\/$/, '')}/names`;
+const PUBLIC_URL = PUBLIC_URL_OVERRIDE
+    ? PUBLIC_URL_OVERRIDE.replace(/\/$/, '')
+    : `${DRAWBRIDGE_PUBLIC_HOST.replace(/\/$/, '')}/names`;
 const SERVICE_DOMAIN = process.env.ARCHON_HERALD_DOMAIN || '';
 const SESSION_SECRET = process.env.ARCHON_HERALD_SESSION_SECRET;
 const IPNS_KEY_NAME = process.env.ARCHON_HERALD_IPNS_KEY_NAME || SERVICE_NAME;

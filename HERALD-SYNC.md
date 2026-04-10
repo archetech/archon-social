@@ -52,7 +52,14 @@ byte-identical to upstream and can be replaced wholesale during sync.
   `@didcid/keymaster` (these are resolved via workspaces in the monorepo but
   must be pulled from npm as a standalone package). Pin to the versions
   matching the Herald fork date.
+- `server/src/index.ts` — added optional `ARCHON_HERALD_PUBLIC_URL` env var
+  that overrides the default `${ARCHON_DRAWBRIDGE_PUBLIC_HOST}/names` derivation.
+  Required for standalone deployments where Herald is not mounted behind
+  Drawbridge under the `/names` prefix. Without this override, the challenge
+  DID document's callback URL points at localhost:4222/names/api/login.
 - Removed stale `server/.env.archon-social` (used old `NS_*` env vars).
+- `server/sample.env` — added a standalone-deployment-oriented env template
+  documenting every Herald variable the server reads.
 
 ### Added files (not in Herald)
 
