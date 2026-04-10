@@ -1345,7 +1345,7 @@ function ViewMember() {
                                 }}
                             />
                             <Typography variant="h5" sx={{ fontWeight: 700, mb: 2, color: '#2c3e50' }}>
-                                @{name}{serviceDomain ? `@${serviceDomain}` : ''}
+                                {name}{serviceDomain ? `@${serviceDomain}` : ''}
                             </Typography>
                             {aliasWalletUrl && (
                                 <Box sx={{ display: 'inline-block', mb: 2 }}>
