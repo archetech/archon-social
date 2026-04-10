@@ -41,6 +41,9 @@ byte-identical to upstream and can be replaced wholesale during sync.
   llms.txt discovery link.
 - `client/public/manifest.json` — archon.social branding, theme color #7c5cff.
 - `client/public/robots.txt` — added reference to /llms.txt convention.
+- `client/.env.production` — changed `VITE_API_URL` from
+  `http://localhost:4222/names/api` (monorepo-via-Drawbridge) to `/api`
+  (standalone nginx proxy). archon.social does not run behind Drawbridge.
 
 ### Server
 
@@ -59,6 +62,9 @@ byte-identical to upstream and can be replaced wholesale during sync.
 - `client/public/llms.txt` — short AI visitor guide (Jeremy Howard llms.txt convention)
 - `client/public/llms-full.txt` — full AI visitor guide with curl examples
 - `client/public/agents.html` — human-readable agent onboarding page (standalone HTML)
+- `nginx/archon-social.conf` — nginx reverse proxy config for the standalone
+  deployment (serves client build, proxies API/OAuth/well-known/directory to
+  Herald on 127.0.0.1:4230)
 
 ## Files intentionally deleted from Herald upstream
 
