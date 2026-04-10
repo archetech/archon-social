@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, createContext, useContext, useCallback } from "react";
 import {
     useNavigate,
     useParams,
@@ -32,20 +32,141 @@ interface AuthState {
     [key: string]: any;
 }
 
+interface AppConfig {
+    publicUrl?: string;
+    serviceDomain?: string;
+    serviceName?: string;
+    [key: string]: any;
+}
+
+interface DirectoryEntryShape {
+    name: string;
+    did: string;
+}
+
+interface AppContextValue {
+    // data
+    config: AppConfig | null;
+    auth: AuthState | null;
+    directory: DirectoryEntryShape[];
+    directoryUpdated: string;
+
+    // loading flags
+    configLoading: boolean;
+    authLoading: boolean;
+    directoryLoading: boolean;
+
+    // actions — invalidate specific slices so callers can trigger a fresh fetch
+    refreshAuth: () => Promise<void>;
+    refreshDirectory: () => Promise<void>;
+}
+
+const AppCtx = createContext<AppContextValue | null>(null);
+
+// Hook used by every view component that needs cached app state.
+function useApp(): AppContextValue {
+    const ctx = useContext(AppCtx);
+    if (!ctx) {
+        throw new Error('useApp must be used inside <AppProvider>');
+    }
+    return ctx;
+}
+
+// Lifts config / auth / directory fetches out of individual views so they
+// only happen once per app load. Views consume the cache via useApp().
+// Navigating away and back (router pop, Link, etc.) no longer triggers
+// visible loading flicker on the landing page.
+function AppProvider({ children }: { children: React.ReactNode }) {
+    const [config, setConfig] = useState<AppConfig | null>(null);
+    const [auth, setAuth] = useState<AuthState | null>(null);
+    const [directory, setDirectory] = useState<DirectoryEntryShape[]>([]);
+    const [directoryUpdated, setDirectoryUpdated] = useState<string>('');
+
+    const [configLoading, setConfigLoading] = useState<boolean>(true);
+    const [authLoading, setAuthLoading] = useState<boolean>(true);
+    const [directoryLoading, setDirectoryLoading] = useState<boolean>(true);
+
+    const refreshAuth = useCallback(async () => {
+        try {
+            const r = await api.get('/check-auth');
+            setAuth(r.data);
+        }
+        catch (e) {
+            console.error('check-auth failed:', e);
+        }
+        finally {
+            setAuthLoading(false);
+        }
+    }, []);
+
+    const refreshDirectory = useCallback(async () => {
+        try {
+            const r = await api.get('/registry');
+            const data = r.data || {};
+            const entries: DirectoryEntryShape[] = Object.entries(data.names || {}).map(
+                ([name, did]) => ({ name, did: did as string })
+            );
+            entries.sort((a, b) => a.name.localeCompare(b.name));
+            setDirectory(entries);
+            setDirectoryUpdated(data.updated || '');
+        }
+        catch (e) {
+            console.error('registry fetch failed:', e);
+        }
+        finally {
+            setDirectoryLoading(false);
+        }
+    }, []);
+
+    // One-shot initial load: fire all three fetches in parallel on app mount.
+    useEffect(() => {
+        (async () => {
+            try {
+                const r = await api.get('/config');
+                setConfig(r.data);
+            }
+            catch (e) {
+                console.error('config fetch failed:', e);
+            }
+            finally {
+                setConfigLoading(false);
+            }
+        })();
+        refreshAuth();
+        refreshDirectory();
+    }, [refreshAuth, refreshDirectory]);
+
+    const value: AppContextValue = {
+        config,
+        auth,
+        directory,
+        directoryUpdated,
+        configLoading,
+        authLoading,
+        directoryLoading,
+        refreshAuth,
+        refreshDirectory,
+    };
+
+    return <AppCtx.Provider value={value}>{children}</AppCtx.Provider>;
+}
+
 function App() {
     return (
         <Router>
-            <Routes>
-                <Route path="/" element={<Home />} />
-                <Route path="/login" element={<ViewLogin />} />
-                <Route path="/logout" element={<ViewLogout />} />
-                <Route path="/members" element={<ViewMembers />} />
-                <Route path="/owner" element={<ViewOwner />} />
-                <Route path="/profile/:did" element={<ViewProfile />} />
-                <Route path="/member/:name" element={<ViewMember />} />
-                <Route path="/credential" element={<ViewCredential />} />
-                <Route path="*" element={<NotFound />} />
-            </Routes>
+            <AppProvider>
+                <Routes>
+                    <Route path="/" element={<Home />} />
+                    <Route path="/login" element={<ViewLogin />} />
+                    <Route path="/logout" element={<ViewLogout />} />
+                    <Route path="/members" element={<ViewMembers />} />
+                    <Route path="/owner" element={<ViewOwner />} />
+                    <Route path="/profile/:did" element={<ViewProfile />} />
+                    <Route path="/member/:name" element={<ViewMember />} />
+                    <Route path="/credential" element={<ViewCredential />} />
+                    <Route path="*" element={<NotFound />} />
+                </Routes>
+            </AppProvider>
         </Router>
     );
 }
@@ -113,25 +234,19 @@ function LoadingShell({ title }: { title: string }) {
     );
 }
 
-interface HomeDirectoryEntry {
-    name: string;
-    did: string;
-}
-
 function Home() {
-    const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
-    const [auth, setAuth] = useState<AuthState | null>(null);
-    const [userDID, setUserDID] = useState<string>('');
-    const [userName, setUserName] = useState<string>('');
-    const [logins, setLogins] = useState<number>(0);
-    const [publicUrl, setPublicUrl] = useState<string>('');
-    const [serviceDomain, setServiceDomain] = useState<string>('');
-    const [serviceName, setServiceName] = useState<string>('archon.social');
-    const [directory, setDirectory] = useState<HomeDirectoryEntry[]>([]);
-    const [directoryLoading, setDirectoryLoading] = useState<boolean>(true);
+    const { config, auth, directory, directoryLoading } = useApp();
     const [searchQuery, setSearchQuery] = useState<string>('');
-
     const navigate = useNavigate();
+
+    const isAuthenticated = !!(auth && auth.isAuthenticated);
+    const userDID = auth?.userDID || '';
+    const userName = auth?.profile?.name || '';
+    const logins = auth?.profile?.logins || 0;
+    const publicUrl = config?.publicUrl || '';
+    const serviceDomain = config?.serviceDomain || '';
+    const serviceName = config?.serviceName || 'archon.social';
+
     const agentDomain = (() => {
         if (serviceDomain) {
             return serviceDomain;
@@ -144,53 +259,6 @@ function Home() {
             return 'archon.social';
         }
     })();
-
-    useEffect(() => {
-        const init = async () => {
-            try {
-                const configResponse = await api.get(`/config`);
-                setPublicUrl(configResponse.data.publicUrl);
-                setServiceDomain(configResponse.data.serviceDomain);
-                setServiceName(configResponse.data.serviceName || 'archon.social');
-
-                const response = await api.get(`/check-auth`);
-                const auth: AuthState = response.data;
-                setAuth(auth);
-                setIsAuthenticated(auth.isAuthenticated);
-                setUserDID(auth.userDID);
-
-                if (auth.profile) {
-                    setLogins(auth.profile.logins || 0);
-
-                    if (auth.profile.name) {
-                        setUserName(auth.profile.name);
-                    }
-                }
-            }
-            catch (error: any) {
-                console.error('config/auth init failed:', error);
-            }
-
-            // Fetch the public directory — no auth required
-            try {
-                const dirResponse = await api.get(`/registry`);
-                const data = dirResponse.data;
-                const entries: HomeDirectoryEntry[] = Object.entries(data.names || {}).map(
-                    ([name, did]) => ({ name, did: did as string })
-                );
-                entries.sort((a, b) => a.name.localeCompare(b.name));
-                setDirectory(entries);
-            }
-            catch (error: any) {
-                console.error('directory fetch failed:', error);
-            }
-            finally {
-                setDirectoryLoading(false);
-            }
-        };
-
-        init();
-    }, [navigate]);
 
     const filteredDirectory = searchQuery
         ? directory.filter(e => e.name.toLowerCase().includes(searchQuery.toLowerCase()))
@@ -508,6 +576,7 @@ function ViewLogin() {
     const [challengeURL, setChallengeURL] = useState<string | null>(null);
     const [challengeCopied, setChallengeCopied] = useState<boolean>(false);
 
+    const { refreshAuth } = useApp();
     const navigate = useNavigate();
     const intervalIdRef = useRef<number | null>(null);
 
@@ -521,6 +590,10 @@ function ViewLogin() {
                             if (intervalIdRef.current) {
                                 clearInterval(intervalIdRef.current);
                             }
+                            // Push the new auth state into the app cache
+                            // before navigating so Home shows the
+                            // authenticated view immediately.
+                            await refreshAuth();
                             navigate('/');
                         }
                     } catch (error: any) {
@@ -625,12 +698,15 @@ function ViewLogin() {
 }
 
 function ViewLogout() {
+    const { refreshAuth } = useApp();
     const navigate = useNavigate();
 
     useEffect(() => {
         const init = async () => {
             try {
                 await api.post(`/logout`);
+                // Clear the cached auth state before returning home.
+                await refreshAuth();
                 navigate('/');
             }
             catch (error: any) {
@@ -639,65 +715,27 @@ function ViewLogout() {
         };
 
         init();
-    }, [navigate]);
+    }, [navigate, refreshAuth]);
 
     return null;
 }
 
-interface DirectoryEntry {
-    name: string;
-    did: string;
-}
-
 function ViewMembers() {
-    const [directory, setDirectory] = useState<DirectoryEntry[]>([]);
-    const [loading, setLoading] = useState<boolean>(true);
-    const [lastUpdated, setLastUpdated] = useState<string>('');
-    const [serviceDomain, setServiceDomain] = useState<string>('');
+    const { config, auth, directory, directoryUpdated, authLoading, directoryLoading } = useApp();
     const navigate = useNavigate();
 
+    const serviceDomain = config?.serviceDomain || '';
+    const lastUpdated = directoryUpdated;
+
+    // Redirect unauthenticated users back to the landing page once the
+    // auth check resolves.
     useEffect(() => {
-        const init = async () => {
-            try {
-                const configResponse = await api.get(`/config`);
-                setServiceDomain(configResponse.data.serviceDomain);
+        if (!authLoading && (!auth || !auth.isAuthenticated)) {
+            navigate('/');
+        }
+    }, [authLoading, auth, navigate]);
 
-                const authResponse = await api.get(`/check-auth`);
-                const auth = authResponse.data;
-
-                if (!auth.isAuthenticated) {
-                    navigate('/');
-                    return;
-                }
-
-                // Fetch directory
-                const dirResponse = await api.get(`/registry`);
-                const data = dirResponse.data;
-
-                setLastUpdated(data.updated || '');
-
-                // Convert names object to array for easier rendering
-                const entries: DirectoryEntry[] = Object.entries(data.names || {}).map(
-                    ([name, did]) => ({ name, did: did as string })
-                );
-
-                // Sort alphabetically by name
-                entries.sort((a, b) => a.name.localeCompare(b.name));
-                setDirectory(entries);
-            }
-            catch (error: any) {
-                console.error(error);
-                navigate('/');
-            }
-            finally {
-                setLoading(false);
-            }
-        };
-
-        init();
-    }, [navigate]);
-
-    if (loading) {
+    if (authLoading || directoryLoading) {
         return <LoadingShell title="Member Directory" />;
     }
 

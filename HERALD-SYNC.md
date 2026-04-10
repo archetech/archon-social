@@ -33,10 +33,12 @@ byte-identical to upstream and can be replaced wholesale during sync.
 - `client/package.json` — renamed to `@archon-social/client`, version reset to 0.1.0
 - `client/src/App.tsx` — rewrote the unauthenticated `Home()` view to be a
   directory-first landing page with hero, stats strip, community grid, and
-  modern footer. Added `HomeDirectoryEntry` interface. Public directory fetch
-  moved into `Home` (previously only in `ViewMembers`). Removed the
-  `if (!auth)` early return so the landing page renders immediately. Hide the
-  large `<Header>` on the unauthenticated landing page.
+  modern footer. Hide the large `<Header>` on the unauthenticated landing page.
+  Added an `AppProvider` React context at the root that caches `/config`,
+  `/check-auth`, and `/registry` responses so navigation between routes no
+  longer triggers re-fetches or loading flicker. `Home`, `ViewMembers`,
+  `ViewLogin`, and `ViewLogout` now consume the cache via `useApp()`.
+  Login and logout call `refreshAuth()` to invalidate the cached auth state.
 - `client/index.html` — archon.social title, description, OG tags, theme color,
   llms.txt discovery link.
 - `client/public/manifest.json` — archon.social branding, theme color #7c5cff.
