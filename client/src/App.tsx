@@ -1243,20 +1243,21 @@ function ViewCredential() {
 
 function ViewMember() {
     const { name } = useParams<{ name: string }>();
+    const { config } = useApp();
     const [memberData, setMemberData] = useState<any>(null);
     const [loading, setLoading] = useState<boolean>(true);
     const [error, setError] = useState<string>('');
-    const [serviceDomain, setServiceDomain] = useState<string>('');
-    const [walletUrl, setWalletUrl] = useState<string>('');
     const [didCopied, setDidCopied] = useState<boolean>(false);
+    const [avatarBroken, setAvatarBroken] = useState<boolean>(false);
+
+    const serviceDomain = config?.serviceDomain || '';
+    const walletUrl = config?.walletUrl || '';
 
     useEffect(() => {
         const fetchMember = async () => {
+            setLoading(true);
+            setAvatarBroken(false);
             try {
-                const configResponse = await api.get('/config');
-                setServiceDomain(configResponse.data.serviceDomain);
-                setWalletUrl(configResponse.data.walletUrl);
-
                 const response = await api.get(`/member/${name}`);
                 setMemberData(response.data);
             }
@@ -1323,12 +1324,37 @@ function ViewMember() {
                     border: '1px solid #e9ecef',
                     textAlign: 'center'
                 }}>
-                    {memberData?.didDocument?.id && aliasWalletUrl && (
+                    {memberData?.didDocument?.id && (
                         <Box>
-                            <a href={aliasWalletUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'inherit', textDecoration: 'none' }}>
-                                <QRCodeSVG value={aliasWalletUrl} />
-                            </a>
-                            <Typography variant="body1" sx={{ fontFamily: 'monospace', color: '#666', wordBreak: 'break-all', mt: 2 }}>
+                            <Box
+                                component="img"
+                                src={avatarBroken
+                                    ? `https://robohash.org/${name}.png?set=set4&size=160x160`
+                                    : `/api/name/${name}/avatar`}
+                                alt={name}
+                                onError={() => setAvatarBroken(true)}
+                                sx={{
+                                    width: 128,
+                                    height: 128,
+                                    borderRadius: '50%',
+                                    mb: 2,
+                                    backgroundColor: '#fff',
+                                    objectFit: 'cover',
+                                    border: '3px solid #fff',
+                                    boxShadow: '0 4px 16px rgba(15, 23, 42, 0.1)',
+                                }}
+                            />
+                            <Typography variant="h5" sx={{ fontWeight: 700, mb: 2, color: '#2c3e50' }}>
+                                @{name}{serviceDomain ? `@${serviceDomain}` : ''}
+                            </Typography>
+                            {aliasWalletUrl && (
+                                <Box sx={{ display: 'inline-block', mb: 2 }}>
+                                    <a href={aliasWalletUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'inherit', textDecoration: 'none' }}>
+                                        <QRCodeSVG value={aliasWalletUrl} />
+                                    </a>
+                                </Box>
+                            )}
+                            <Typography variant="body1" sx={{ fontFamily: 'monospace', color: '#666', wordBreak: 'break-all', mt: 1 }}>
                                 {memberData.didDocument.id}
                             </Typography>
                             <Button
@@ -1368,9 +1394,13 @@ function ViewMember() {
                     </Button>
                     <Button
                         component="a"
-                        href={`https://explorer.archon.technology/search?did=${memberData?.id}`}
+                        href={memberData?.didDocument?.id
+                            ? `https://explorer.archon.technology/search?did=${memberData.didDocument.id}`
+                            : 'https://explorer.archon.technology'}
                         target="_blank"
+                        rel="noopener noreferrer"
                         variant="outlined"
+                        disabled={!memberData?.didDocument?.id}
                     >
                         View on Archon Explorer
                     </Button>
