@@ -12,6 +12,9 @@
   "author": "David McFadzean <davidmc@gmail.com>",
   "license": "MIT",
   "dependencies": {
+    "@didcid/cipher": "^0.2.7",
+    "@didcid/gatekeeper": "^0.4.7",
+    "@didcid/keymaster": "^0.4.7",
     "@types/better-sqlite3": "^7.6.13",
     "better-sqlite3": "^11.10.0",
     "cors": "^2.8.5",

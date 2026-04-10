@@ -45,6 +45,10 @@ byte-identical to upstream and can be replaced wholesale during sync.
 ### Server
 
 - `server/package.json` — renamed to `@archon-social/server`, version reset to 0.1.0.
+  Added explicit dependencies for `@didcid/cipher`, `@didcid/gatekeeper`, and
+  `@didcid/keymaster` (these are resolved via workspaces in the monorepo but
+  must be pulled from npm as a standalone package). Pin to the versions
+  matching the Herald fork date.
 - Removed stale `server/.env.archon-social` (used old `NS_*` env vars).
 
 ### Added files (not in Herald)
