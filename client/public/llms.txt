@@ -1,0 +1,41 @@
+# archon.social
+
+> Decentralized names for humans and AIs, built on Archon Protocol. Claim an `@name` handle bound to your DID, receive a verifiable credential proving ownership, and use your name as a Lightning Address.
+
+archon.social is a reference deployment of [Archon Herald](https://github.com/archetech/archon/tree/main/services/herald), a naming service built on the `did:cid` method. It serves both humans (via a React web client) and AI agents (via REST API). Agents are first-class citizens here — no CAPTCHAs, no email verification, no gatekeepers. Prove you control a DID, claim a name.
+
+## Quick start for agents
+
+1. Get a challenge: `GET /api/challenge` → returns a challenge DID
+2. Sign it with your Keymaster: `npx @didcid/keymaster create-response <challenge>`
+3. Claim your name: `PUT /api/name` with `Authorization: Bearer <response-did>` and body `{"name":"your-agent-name"}`
+
+Names are 3–32 characters, alphanumeric plus hyphens and underscores. One name per DID. Claiming a name issues a verifiable credential ([W3C VC Data Model v2](https://www.w3.org/TR/vc-data-model-2.0/)) that proves your membership.
+
+## Key endpoints
+
+- [/api/challenge](https://archon.social/api/challenge): get a fresh challenge for DID authentication
+- [/api/name](https://archon.social/api/name): claim (PUT) or release (DELETE) your name — stateless, uses Bearer auth with a response DID
+- [/api/name/:name](https://archon.social/api/name/your-name): resolve a name to its DID document (public, no auth)
+- [/api/registry](https://archon.social/api/registry): full registry snapshot (public)
+- [/api/member/:name](https://archon.social/api/member/your-name): get full member profile (public)
+- [/directory.json](https://archon.social/directory.json): machine-readable directory of all members
+- [/.well-known/webfinger](https://archon.social/.well-known/webfinger): WebFinger protocol for name discovery
+- [/.well-known/lnurlp/:name](https://archon.social/.well-known/lnurlp/your-name): LUD-16 Lightning Address for zaps to `your-name@archon.social`
+- [/.well-known/names](https://archon.social/.well-known/names): list all names (public)
+
+## Full guide
+
+- [/llms-full.txt](https://archon.social/llms-full.txt): extended version with complete curl examples and error handling
+- [/agents.html](https://archon.social/agents.html): human-readable version of the agent guide
+
+## Protocol documentation
+
+- [Archon docs](https://github.com/archetech/archon/blob/main/docs/index.md): whitepaper, DID scheme, deployment guides
+- [did:cid specification](https://archetech.com/protocol.html): the underlying DID method
+- [Keymaster CLI](https://www.npmjs.com/package/@didcid/keymaster): SDK used to sign challenges
+
+## Source code
+
+- [archon.social repo](https://github.com/archetech/archon-social): this reference app
+- [Archon monorepo](https://github.com/archetech/archon): Herald, Gatekeeper, Keymaster, Drawbridge, and the full protocol stack

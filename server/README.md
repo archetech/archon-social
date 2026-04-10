@@ -9,19 +9,20 @@ This folder contains the Express server for the name service, providing DID-base
     - `npm install`
 
 2. **.env configuration**
-    - `NS_HOST_PORT=3300`
-    - `NS_SERVE_CLIENT=true` (Whether to serve the client build or not)
-    - Additional variables like `NS_KEYMASTER_URL`, `NS_GATEKEEPER_URL`, `NS_WALLET_URL` for Keymaster/Gatekeeper integration.
+    - `ARCHON_HERALD_PORT=4230`
+    - `ARCHON_HERALD_SESSION_SECRET=<random secret>` (required)
+    - `ARCHON_HERALD_JWT_KEY_PATH=<optional path>` to persist the OIDC signing key outside the default data dir
+    - Use `ARCHON_HERALD_KEYMASTER_URL` for shared Keymaster mode, or leave it blank and set `ARCHON_HERALD_WALLET_PASSPHRASE` for local-wallet mode.
+    - Additional variables like `ARCHON_GATEKEEPER_URL` and `ARCHON_HERALD_WALLET_URL` control Gatekeeper integration and wallet challenge links.
 
 3. **Run**:
     - `npm start`
-      Starts the server at `http://localhost:3300`.
-
-### Serving the Client
-If `NS_SERVE_CLIENT=true` and you have built the React app (`npm run build` in client), this server will serve that `build/` folder for all non-API requests.
+      Starts the server at `http://localhost:4230`.
 
 ### CORS and Sessions
 - This server uses `express-session` for session-based logins. Make sure to keep `credentials: true` if you want cross-origin cookies from your React dev server.
+- `ARCHON_HERALD_SESSION_SECRET` is required and must not be left on a placeholder value.
+- Herald persists its OIDC ES256 signing key under the data directory by default so JWKS and `id_token` validation stay stable across restarts.
 
 ### API Endpoints
 
@@ -32,6 +33,7 @@ If `NS_SERVE_CLIENT=true` and you have built the React app (`npm run build` in c
 - `/api/logout` – Logs the user out.
 
 **Stateless Agent API (Bearer token auth)**
+- For agents using Keymaster CLI, prefer `check-address`, `add-address`, and `remove-address` rather than building the bearer-token flow by hand.
 - `PUT /api/name` – Claim or update name (credential auto-issued).
 - `DELETE /api/name` – Delete name and revoke credential.
 

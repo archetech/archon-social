@@ -1,91 +1,86 @@
-# Name Service
+# archon.social
 
-### Overview
-A decentralized naming service built on Archon Protocol. Users can claim `@name` handles, prove DID ownership, and receive verifiable credentials.
+> Decentralized names for humans and AIs, built on [Archon Protocol](https://archetech.com).
 
-This repository is split into two main folders:
+**archon.social** is a reference application demonstrating how to build a
+decentralized naming service on top of Archon. Claim your `@name`, prove
+ownership of your DID, and receive verifiable credentials — all without a
+central authority.
 
-- **client/** – A React front-end
-- **server/** – An Express/Node back-end
+This repo is a thin overlay on [Archon Herald](https://github.com/archetech/archon/tree/main/services/herald)
+with custom branding, a directory-first landing page, and dedicated AI visitor
+guidance (`/llms.txt`, `/agents.html`). When Herald ships new features, they
+can be merged in via the process documented in [HERALD-SYNC.md](./HERALD-SYNC.md).
 
-### Features
-
-- **Decentralized Identity** – Login with your DID using challenge-response authentication
-- **Name Registration** – Claim your `@name` handle (3-32 characters, alphanumeric + hyphens/underscores)
-- **Verifiable Credentials** – Receive credentials proving your name ownership
-- **Member Directory** – Browse registered members and view their DID documents
-- **IPNS Publication** – Registry published to IPFS for decentralized resolution
-- **OAuth/OIDC** – Third-party app integration via standard OAuth 2.0 flows
-
-### Quick Start
-
-1. **Configure** – Copy `server/sample.env` to `server/.env` and set:
-   - `NS_SERVICE_NAME` – Unique name for this deployment (used for DID identity)
-   - `NS_PUBLIC_URL` – The canonical public URL (e.g. `https://your-domain.example`)
-   - `NS_SESSION_SECRET` – A random secret string for sessions
-
-2. **Install** dependencies:
-   - `npm run install`
-
-3. **Run** both client and server:
-   - `npm start`
-
-4. **Visit** the site at `http://localhost:3300`
-
-### QR Code Authentication
-
-The QR code encodes a URL that includes the challenge DID as a query parameter:
-
-`https://wallet.archon.technology?challenge=did:cid:...`
-
-The wallet URL is specified in the environment variable `NS_WALLET_URL`.
-
-The API offers two ways to submit a response to the challenge, GET and POST.
-
-The GET method uses a query parameter for the `response`:
+## Structure
 
 ```
-curl https://your-domain.example/api/login?response=did:cid:...
+archon-social/
+├── client/          # React front-end (forked from apps/herald-client)
+├── server/          # Express back-end (forked from services/herald/server)
+├── HERALD-SYNC.md   # Upstream sync tracker
+└── README.md        # this file
 ```
 
-The POST method takes the same parameter in the body:
+## For AI agents
 
-```
-curl -X POST -H "Content-Type: application/json" -d '{"response":"did:cid:..."}' https://your-domain.example/api/login
-```
+See [`/llms.txt`](./client/public/llms.txt) for a concise guide, or
+[`/agents.html`](./client/public/agents.html) for the full walkthrough.
 
-Both login methods return a JSON object indicating whether the login was successful:
-```
-{ authenticated: [ true | false ] }
-```
+TL;DR:
 
-### Environment Variables
+```bash
+# 1. Get a challenge
+CHALLENGE=$(curl -s https://archon.social/api/challenge | jq -r '.challenge')
 
-See `server/sample.env` for all available settings including:
-- `NS_SERVICE_NAME` – Service identity name (used for DID owner identity)
-- `NS_PUBLIC_URL` – Canonical public URL for this deployment
-- `NS_SESSION_SECRET` – Session secret (change from default!)
-- `NS_WALLET_URL` – Wallet URL for QR codes
-- `NS_GATEKEEPER_URL` – Gatekeeper API endpoint
-- `NS_IPFS_API_URL` – IPFS API for registry publication
-- `NS_IPNS_KEY_NAME` – IPNS key for publishing
+# 2. Sign it with keymaster
+RESPONSE=$(npx @didcid/keymaster create-response $CHALLENGE)
 
-### Docker
-
-```
-docker compose up --build
+# 3. Claim your name
+curl -s -X PUT https://archon.social/api/name \
+  -H "Authorization: Bearer $RESPONSE" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"your-agent-name"}' | jq .
 ```
 
-Configure via environment variables or a `.env` file in the project root.
+## For humans
 
-### Nginx
+Visit [archon.social](https://archon.social), sign in with your Archon wallet,
+and claim your `@name`.
 
-See `nginx/name-service.conf.template` for a sample nginx reverse proxy config. Use `envsubst` to fill in your domain:
+Don't have a wallet yet? Install one:
+- [Web wallet](https://wallet.archon.technology)
+- [Chrome extension](https://archetech.com)
+- Or run the CLI: `npx @didcid/keymaster`
 
+## Development
+
+```bash
+# Install
+cd client && npm install
+cd ../server && npm install
+
+# Run server (default port 4230)
+cd server && npm run build && npm start
+
+# Run client dev (default port 3001)
+cd client && npm run dev
 ```
-export DOMAIN=your-domain.example
-envsubst '${DOMAIN}' < nginx/name-service.conf.template > /etc/nginx/sites-available/name-service.conf
-```
 
-### License
-MIT
+Configure via environment variables — see `server/sample.env` for the full
+list. Required: `ARCHON_HERALD_SESSION_SECRET` and `ARCHON_GATEKEEPER_URL`.
+
+## Deployment
+
+archon.social runs as part of the public Archon node. The production
+deployment sits behind Drawbridge at https://archon.social.
+
+## License
+
+MIT — same as Archon Herald and the rest of the Archon Protocol stack.
+
+## Credits
+
+- Built on [Archon Herald](https://github.com/archetech/archon/tree/main/services/herald)
+  by David McFadzean (macterra) and the Archon team.
+- archon.social wrapper and reference app by [Archetech](https://archetech.com).

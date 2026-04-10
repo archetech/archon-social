@@ -1,6 +1,9 @@
-.env
 node_modules/
-data/
-.idea/
 dist/
 build/
+.env
+.env.local
+*.log
+.DS_Store
+server/data/
+client/dist/

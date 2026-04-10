@@ -1,25 +1,69 @@
 import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
-import { SignJWT, generateKeyPair, exportJWK } from 'jose';
+import { mkdir, readFile, writeFile } from 'fs/promises';
+import path from 'path';
+import { SignJWT, exportJWK, generateKeyPair, importJWK } from 'jose';
 
-// Generate ES256 signing key at startup (or load from env)
+const DATA_DIR = process.env.ARCHON_HERALD_DATA_DIR || '/app/server/data';
+const JWT_KEY_PATH = process.env.ARCHON_HERALD_JWT_KEY_PATH || path.join(DATA_DIR, 'oauth-signing-key.json');
+
+// Generate ES256 signing key at startup (or load persisted key)
 let jwtSigningKey: CryptoKey | null = null;
 let jwtPublicJWK: any = null;
 const JWT_KEY_ID = 'archon-social-signing-key-1';
 
+interface PersistedJwtKey {
+    kid: string;
+    privateJwk: Record<string, any>;
+}
+
+async function loadPersistedJWTKey(): Promise<boolean> {
+    try {
+        const raw = await readFile(JWT_KEY_PATH, 'utf8');
+        const persisted = JSON.parse(raw) as PersistedJwtKey;
+        jwtSigningKey = await importJWK(persisted.privateJwk, 'ES256') as CryptoKey;
+        jwtPublicJWK = await exportJWK(jwtSigningKey);
+        delete jwtPublicJWK.d;
+        delete jwtPublicJWK.key_ops;
+        jwtPublicJWK.kid = persisted.kid || JWT_KEY_ID;
+        jwtPublicJWK.use = 'sig';
+        jwtPublicJWK.alg = 'ES256';
+        console.log('Loaded persisted ES256 JWT signing key, kid:', jwtPublicJWK.kid);
+        return true;
+    }
+    catch (error: any) {
+        if (error?.code !== 'ENOENT') {
+            console.warn(`Failed to load persisted JWT signing key from ${JWT_KEY_PATH}:`, error);
+        }
+        return false;
+    }
+}
+
+async function persistJWTKey(privateKey: CryptoKey): Promise<void> {
+    const privateJwk = await exportJWK(privateKey);
+    await mkdir(path.dirname(JWT_KEY_PATH), { recursive: true });
+    await writeFile(JWT_KEY_PATH, JSON.stringify({
+        kid: JWT_KEY_ID,
+        privateJwk
+    }, null, 2));
+}
+
 async function initJWTKeys(): Promise<void> {
     if (!jwtSigningKey) {
-        // Generate ephemeral key pair (in production, persist this)
+        if (await loadPersistedJWTKey()) {
+            return;
+        }
+
         const { privateKey, publicKey } = await generateKeyPair('ES256');
         jwtSigningKey = privateKey as CryptoKey;
-        
-        // Export public key as JWK for JWKS endpoint
+        await persistJWTKey(jwtSigningKey);
+
         jwtPublicJWK = await exportJWK(publicKey);
         jwtPublicJWK.kid = JWT_KEY_ID;
         jwtPublicJWK.use = 'sig';
         jwtPublicJWK.alg = 'ES256';
-        
-        console.log('Generated ES256 JWT signing key, kid:', JWT_KEY_ID);
+
+        console.log('Generated and persisted ES256 JWT signing key, kid:', JWT_KEY_ID);
     }
 }
 
@@ -39,6 +83,7 @@ const router = Router();
 // In-memory stores (replace with DB in production)
 const authCodes: Map<string, AuthCode> = new Map();
 const accessTokens: Map<string, AccessToken> = new Map();
+const authRedirects: Map<string, string> = new Map();
 
 // Registered OAuth clients
 const clients: Map<string, OAuthClient> = new Map();
@@ -114,6 +159,36 @@ export function createOAuthRoutes(getKeymaster: () => any, getMemberByDID: (did:
         scope: string;
         challenge: string;
     }> = new Map();
+    const adminApiKey = process.env.ARCHON_ADMIN_API_KEY || process.env.ARCHON_HERALD_ADMIN_API_KEY || '';
+    const adminHeaderName = 'x-archon-admin-key';
+
+    function requireAdminKey(req: Request, res: Response): boolean {
+        if (!adminApiKey) {
+            res.status(403).json({ error: 'Admin API key not configured' });
+            return false;
+        }
+
+        const internalHeader = req.headers[adminHeaderName];
+        const key = typeof internalHeader === 'string'
+            ? internalHeader
+            : Array.isArray(internalHeader)
+                ? internalHeader[0]
+                : null;
+
+        if (!key) {
+            res.status(401).json({ error: 'Admin API key required' });
+            return false;
+        }
+        const keyBuf = Buffer.from(key);
+        const expectedBuf = Buffer.from(adminApiKey);
+
+        if (keyBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(keyBuf, expectedBuf)) {
+            res.status(401).json({ error: 'Invalid admin API key' });
+            return false;
+        }
+
+        return true;
+    }
 
     /**
      * GET /oauth/authorize
@@ -149,7 +224,8 @@ export function createOAuthRoutes(getKeymaster: () => any, getMemberByDID: (did:
             }
 
             // Create DID challenge with OAuth context
-            const publicUrl = process.env.NS_PUBLIC_URL || `http://localhost:${process.env.NS_HOST_PORT || 3300}`;
+            const drawbridgePublicHost = process.env.ARCHON_DRAWBRIDGE_PUBLIC_HOST || `http://localhost:${process.env.ARCHON_DRAWBRIDGE_PORT || 4222}`;
+            const publicUrl = `${drawbridgePublicHost.replace(/\/$/, '')}/names`;
             const challenge = await keymaster().createChallenge({
                 callback: `${publicUrl}/oauth/callback`,
                 oauth: {
@@ -170,7 +246,7 @@ export function createOAuthRoutes(getKeymaster: () => any, getMemberByDID: (did:
             });
 
             // Return challenge for client to display
-            const walletUrl = process.env.NS_WALLET_URL || 'https://wallet.archon.technology';
+            const walletUrl = process.env.ARCHON_HERALD_WALLET_URL || 'https://wallet.archon.technology';
             const challengeURL = `${walletUrl}?challenge=${challenge}`;
 
             // If explicitly requesting JSON (API call), return JSON
@@ -190,7 +266,7 @@ export function createOAuthRoutes(getKeymaster: () => any, getMemberByDID: (did:
                 <!DOCTYPE html>
                 <html>
                 <head>
-                    <title>Sign in with ${process.env.NS_SERVICE_NAME || 'Name Service'}</title>
+                    <title>Sign in with ${process.env.ARCHON_HERALD_NAME || 'Name Service'}</title>
                     <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
                     <style>
                         body { 
@@ -239,7 +315,7 @@ export function createOAuthRoutes(getKeymaster: () => any, getMemberByDID: (did:
                     </style>
                 </head>
                 <body>
-                    <h1>Sign in with ${process.env.NS_SERVICE_NAME || 'Name Service'}</h1>
+                    <h1>Sign in with ${process.env.ARCHON_HERALD_NAME || 'Name Service'}</h1>
                     <p class="subtitle"><strong>${client.name}</strong> wants to access your profile</p>
                     
                     <a href="${challengeURL}" target="_blank" class="qr-container" title="Click to open in wallet">
@@ -346,7 +422,7 @@ export function createOAuthRoutes(getKeymaster: () => any, getMemberByDID: (did:
             // Store redirect for polling
             const redirectKey = `redirect:${challengeDID}`;
             const redirectUrl = `${pending.redirect_uri}?code=${code}&state=${pending.state}`;
-            (pendingAuths as any)[redirectKey] = redirectUrl;
+            authRedirects.set(redirectKey, redirectUrl);
             console.log('Stored redirect:', { redirectKey, redirectUrl });
 
             res.json({ 
@@ -366,12 +442,12 @@ export function createOAuthRoutes(getKeymaster: () => any, getMemberByDID: (did:
     router.get('/poll', (req: Request, res: Response) => {
         const { challenge } = req.query;
         const redirectKey = `redirect:${challenge}`;
-        const redirect = (pendingAuths as any)[redirectKey];
+        const redirect = authRedirects.get(redirectKey);
         
         console.log('Poll check:', { challenge, redirectKey, hasRedirect: !!redirect });
         
         if (redirect) {
-            delete (pendingAuths as any)[redirectKey];
+            authRedirects.delete(redirectKey);
             return res.json({ redirect });
         }
         
@@ -395,9 +471,16 @@ export function createOAuthRoutes(getKeymaster: () => any, getMemberByDID: (did:
             if (authHeader && authHeader.startsWith('Basic ')) {
                 const base64Credentials = authHeader.substring(6);
                 const credentials = Buffer.from(base64Credentials, 'base64').toString('utf8');
-                const [basicId, basicSecret] = credentials.split(':');
-                client_id = basicId;
-                client_secret = basicSecret;
+                const separatorIndex = credentials.indexOf(':');
+
+                if (separatorIndex === -1) {
+                    return res.status(401).json({
+                        error: 'invalid_client'
+                    });
+                }
+
+                client_id = credentials.slice(0, separatorIndex);
+                client_secret = credentials.slice(separatorIndex + 1);
             }
 
             if (grant_type !== 'authorization_code') {
@@ -412,8 +495,6 @@ export function createOAuthRoutes(getKeymaster: () => any, getMemberByDID: (did:
                 console.log('Client auth failed:', { 
                     client_id, 
                     hasClient: !!client, 
-                    expectedSecret: client?.client_secret?.substring(0, 8) + '...',
-                    receivedSecret: client_secret?.substring(0, 8) + '...',
                     authHeader: authHeader ? 'present' : 'missing',
                     bodyClientId: req.body.client_id,
                     bodyHasSecret: !!req.body.client_secret
@@ -463,7 +544,8 @@ export function createOAuthRoutes(getKeymaster: () => any, getMemberByDID: (did:
 
             // Generate JWT id_token
             const member = await getMemberByDID(authCode.did);
-            const baseUrl = process.env.NS_PUBLIC_URL || `http://localhost:${process.env.NS_HOST_PORT || 3300}`;
+            const drawbridgePublicHost = process.env.ARCHON_DRAWBRIDGE_PUBLIC_HOST || `http://localhost:${process.env.ARCHON_DRAWBRIDGE_PORT || 4222}`;
+            const baseUrl = `${drawbridgePublicHost.replace(/\/$/, '')}/names`;
             const issuer = `${baseUrl}/oauth`;  // Must match OIDC discovery issuer
             const now = Math.floor(Date.now() / 1000);
 
@@ -566,7 +648,8 @@ export function createOAuthRoutes(getKeymaster: () => any, getMemberByDID: (did:
      * OIDC Discovery document
      */
     router.get('/.well-known/openid-configuration', (_req: Request, res: Response) => {
-        const baseUrl = process.env.NS_PUBLIC_URL || `http://localhost:${process.env.NS_HOST_PORT || 3300}`;
+        const drawbridgePublicHost = process.env.ARCHON_DRAWBRIDGE_PUBLIC_HOST || `http://localhost:${process.env.ARCHON_DRAWBRIDGE_PORT || 4222}`;
+        const baseUrl = `${drawbridgePublicHost.replace(/\/$/, '')}/names`;
         const issuer = `${baseUrl}/oauth`;  // Issuer matches where discovery is served
         
         res.json({
@@ -588,7 +671,10 @@ export function createOAuthRoutes(getKeymaster: () => any, getMemberByDID: (did:
      * Register a new OAuth client
      */
     router.post('/clients', (req: Request, res: Response) => {
-    // TODO: Add admin authentication
+        if (!requireAdminKey(req, res)) {
+            return;
+        }
+
         const { name, redirect_uris } = req.body;
         
         const client_id = crypto.randomBytes(16).toString('hex');

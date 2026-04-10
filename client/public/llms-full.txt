@@ -1,0 +1,194 @@
+# archon.social — Full Agent Guide
+
+> Decentralized names for humans and AIs, built on Archon Protocol.
+
+This document is intended for AI agents and automated clients. It explains how to register a `@name` on archon.social using HTTP and the Keymaster CLI. For a shorter overview see [/llms.txt](https://archon.social/llms.txt).
+
+## What archon.social does
+
+archon.social is a decentralized naming service. You give it a name (e.g. `alice`) and a DID you control, and it:
+
+1. Verifies you control the DID (via challenge-response).
+2. Registers the name `alice@archon.social` in its registry.
+3. Issues you a W3C Verifiable Credential proving ownership.
+4. Publishes the registry to IPFS via IPNS for decentralized resolution.
+5. Exposes your name as a Lightning Address (LUD-16), WebFinger handle, and public directory entry.
+
+Names belong to DIDs, not to archon.social. If this node disappears, your DID still holds your credential and anyone can verify it.
+
+## Prerequisites
+
+- A DID controlled by your Keymaster wallet. Create one with:
+  ```
+  npx @didcid/keymaster create-id YourAgentName
+  ```
+- `curl` and `jq` available on your system.
+- The Keymaster CLI installed (`npx @didcid/keymaster`).
+
+## Registration flow (stateless, no cookies)
+
+The fastest path: 2 HTTP calls plus a local signature. No session cookies, no OAuth dance.
+
+### 1. Get a challenge
+
+```bash
+SERVICE_URL="https://archon.social"
+CHALLENGE=$(curl -s $SERVICE_URL/api/challenge | jq -r '.challenge')
+echo $CHALLENGE
+# did:cid:bagaaiera...
+```
+
+The challenge is a DID that references a signed challenge document pinned to IPFS by archon.social. It has an expiration time embedded.
+
+### 2. Sign the challenge
+
+```bash
+RESPONSE=$(npx @didcid/keymaster create-response $CHALLENGE)
+echo $RESPONSE
+# did:cid:bagaaiera...
+```
+
+The response is another DID that encapsulates your cryptographic signature of the challenge, proving that you control the DID used to sign. The response is pinned to IPFS and is self-contained — archon.social only needs to resolve it to verify you.
+
+### 3. Claim your name
+
+```bash
+curl -s -X PUT $SERVICE_URL/api/name \
+  -H "Authorization: Bearer $RESPONSE" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"my-agent"}' | jq .
+```
+
+Successful response:
+```json
+{
+  "ok": true,
+  "name": "my-agent",
+  "did": "did:cid:bagaaiera...",
+  "credential": {
+    "credentialDid": "did:cid:bagaaiera...",
+    "credential": { "@context": [...], "type": [...], "credentialSubject": {...}, "proof": {...} }
+  }
+}
+```
+
+The credential is a W3C Verifiable Credential signed by archon.social, asserting that your DID has been granted the name `my-agent@archon.social`. Store it — you can present it to third parties as proof of membership.
+
+### 4. Verify your name resolves
+
+```bash
+curl -s $SERVICE_URL/api/name/my-agent | jq .
+# Returns the full DID document of the owner.
+```
+
+## Delete your name
+
+```bash
+# Get a fresh challenge and response (same as steps 1-2 above)
+curl -s -X DELETE $SERVICE_URL/api/name \
+  -H "Authorization: Bearer $RESPONSE" | jq .
+```
+
+## Full endpoint reference
+
+### Public endpoints (no auth)
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/api/version` | Server version info |
+| GET | `/api/config` | Public config: gatekeeper URL, wallet URL, etc. |
+| GET | `/api/challenge` | Generate a new challenge DID |
+| GET | `/api/registry` | Full registry snapshot (all names) |
+| GET | `/api/name/:name` | Resolve a name to its DID document |
+| GET | `/api/name/:name/avatar` | Get the avatar image for a name |
+| GET | `/api/member/:name` | Get full member profile |
+| GET | `/directory.json` | Machine-readable directory |
+| GET | `/.well-known/names` | List all registered names |
+| GET | `/.well-known/names/:name` | Resolve a specific name |
+| GET | `/.well-known/webfinger?resource=acct:name@archon.social` | WebFinger resource lookup |
+| GET | `/.well-known/lnurlp/:name` | LUD-16 Lightning Address metadata |
+| GET | `/api/lnurlp/:name/callback` | LUD-16 invoice callback |
+| GET | `/.well-known/openid-configuration` | OIDC discovery document |
+| GET | `/.well-known/jwks.json` | OIDC JWKS for token verification |
+
+### Stateless authenticated endpoints (Bearer auth with a response DID)
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| PUT | `/api/name` | Claim a name (body: `{"name":"..."}`) |
+| DELETE | `/api/name` | Release the caller's current name |
+
+### Session authenticated endpoints (for the React client)
+
+These use HTTP session cookies set after `GET/POST /api/login` with a response DID. Included for completeness; agents should prefer the stateless flow above.
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/api/login?response=<did>` | Log in via GET (query param) |
+| POST | `/api/login` | Log in via POST (JSON body) |
+| POST | `/api/logout` | End the session |
+| GET | `/api/check-auth` | Check current session status |
+| GET | `/api/users` | List authenticated users (auth required) |
+| GET | `/api/profile/:did` | Get your profile |
+| GET/PUT/DELETE | `/api/profile/:did/name` | Manage your name via session |
+| GET | `/api/credential` | Retrieve your membership credential |
+
+### OAuth 2.0 / OIDC endpoints
+
+archon.social supports "Sign in with Archon" via OIDC:
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/oauth/authorize` | Authorization endpoint |
+| POST | `/oauth/callback` | Callback for challenge response |
+| GET | `/oauth/poll` | Poll for authorization completion |
+| POST | `/oauth/token` | Exchange authorization code for tokens |
+| GET | `/oauth/userinfo` | Get user info from access token |
+| POST | `/oauth/clients` | Register a new OAuth client |
+
+## Lightning Address
+
+Once you have a name, you automatically have a Lightning Address: `your-name@archon.social`. Anyone with a LUD-16 compatible wallet (Alby, Phoenix, Strike, Cash App, Wallet of Satoshi, etc.) can send you sats using that address.
+
+Under the hood, payments flow through your DID's Lightning service endpoint, so you need a Lightning wallet attached to your DID first. Create one with:
+
+```
+npx @didcid/keymaster add-lightning
+npx @didcid/keymaster publish-lightning
+```
+
+## Rate limits and fair use
+
+archon.social runs on a community node with reasonable rate limits. Don't hammer the challenge endpoint in a tight loop — each challenge is a real IPFS operation. If you need high throughput, run your own Archon Herald node (it's a single Docker command) and contribute to the registry via WebFinger / IPNS cross-resolution.
+
+## Error responses
+
+All endpoints return JSON on error:
+
+```json
+{
+  "error": "Descriptive error message"
+}
+```
+
+Common errors:
+- `401` — missing or invalid Bearer token / challenge response expired
+- `403` — DID not authorized (e.g. not the owner of the name being modified)
+- `409` — name already taken
+- `400` — invalid name format (must match `^[a-zA-Z0-9_-]{3,32}$`)
+
+## Verifying credentials independently
+
+The credential issued on registration is self-contained and does not require archon.social to verify. Any W3C VC-compatible verifier can check it using the issuer's DID document. Example:
+
+```bash
+# Resolve the issuer (archon.social owner DID) and verify the proof
+npx @didcid/keymaster verify-credential <credential-did>
+```
+
+## Questions, issues, source code
+
+- Source: https://github.com/archetech/archon-social
+- Archon protocol: https://github.com/archetech/archon
+- Archetech: https://archetech.com
+- Contact: flaxscrip@archon.social

@@ -6,9 +6,6 @@ import express, {
 import session from 'express-session';
 import morgan from 'morgan';
 import path from 'path';
-import fs from 'fs';
-import crypto from 'crypto';
-import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import cors from 'cors';
 import { socksDispatcher } from 'fetch-socks';
@@ -20,6 +17,7 @@ import KeymasterClient from '@didcid/keymaster/client';
 import WalletJson from '@didcid/keymaster/wallet/json';
 import { DatabaseInterface, User } from './db/interfaces.js';
 import { DbJson } from './db/json.js';
+import { DbRedis } from './db/redis.js';
 import { DbSqlite } from './db/sqlite.js';
 import { createOAuthRoutes } from './oauth/index.js';
 
@@ -28,19 +26,32 @@ let db: DatabaseInterface;
 
 dotenv.config();
 
-const HOST_PORT = Number(process.env.NS_HOST_PORT) || 3300;
-const GATEKEEPER_URL = process.env.NS_GATEKEEPER_URL || 'http://localhost:4224';
-const WALLET_URL = process.env.NS_WALLET_URL || 'http://localhost:4224';
-const NS_DATABASE_TYPE = process.env.NS_DATABASE || 'json';
-const IPFS_API_URL = process.env.NS_IPFS_API_URL || 'http://localhost:5001/api/v0';
-const SERVICE_NAME = process.env.NS_SERVICE_NAME || 'name-service';
-const PUBLIC_URL = process.env.NS_PUBLIC_URL || `http://localhost:${HOST_PORT}`;
-const SERVICE_DOMAIN = process.env.NS_SERVICE_DOMAIN || '';
-const SESSION_SECRET = process.env.NS_SESSION_SECRET || SERVICE_NAME;
-const IPNS_KEY_NAME = process.env.NS_IPNS_KEY_NAME || SERVICE_NAME;
-const MEMBERSHIP_SCHEMA_DID = process.env.NS_MEMBERSHIP_SCHEMA_DID || '';
-const TOR_PROXY = process.env.NS_TOR_PROXY || '';
-const ADMIN_API_KEY = process.env.ARCHON_ADMIN_API_KEY || process.env.NS_ADMIN_API_KEY || '';
+const HOST_PORT = Number(process.env.ARCHON_HERALD_PORT) || 4230;
+const DRAWBRIDGE_PORT = Number(process.env.ARCHON_DRAWBRIDGE_PORT) || 4222;
+const DRAWBRIDGE_PUBLIC_HOST = process.env.ARCHON_DRAWBRIDGE_PUBLIC_HOST || `http://localhost:${DRAWBRIDGE_PORT}`;
+const GATEKEEPER_URL = process.env.ARCHON_GATEKEEPER_URL || 'http://localhost:4224';
+const WALLET_URL = process.env.ARCHON_HERALD_WALLET_URL || 'https://wallet.archon.technology';
+const HERALD_DATABASE_TYPE = process.env.ARCHON_HERALD_DB || 'json';
+const DATA_DIR = process.env.ARCHON_HERALD_DATA_DIR || '/app/server/data';
+const IPFS_API_URL = process.env.ARCHON_HERALD_IPFS_API_URL || 'http://localhost:5001/api/v0';
+const SERVICE_NAME = process.env.ARCHON_HERALD_NAME || 'name-service';
+const PUBLIC_URL = `${DRAWBRIDGE_PUBLIC_HOST.replace(/\/$/, '')}/names`;
+const SERVICE_DOMAIN = process.env.ARCHON_HERALD_DOMAIN || '';
+const SESSION_SECRET = process.env.ARCHON_HERALD_SESSION_SECRET;
+const IPNS_KEY_NAME = process.env.ARCHON_HERALD_IPNS_KEY_NAME || SERVICE_NAME;
+const DEFAULT_MEMBERSHIP_SCHEMA_DID = 'did:cid:bagaaieravnv5onsflewvrz6urhwfjixfnwq7bgc3ejhlrj2nekx75ddhdupq';
+const MEMBERSHIP_SCHEMA_DID = process.env.ARCHON_HERALD_MEMBERSHIP_SCHEMA_DID || DEFAULT_MEMBERSHIP_SCHEMA_DID;
+const TOR_PROXY = process.env.ARCHON_HERALD_TOR_PROXY || '';
+const ADMIN_API_KEY = process.env.ARCHON_ADMIN_API_KEY || process.env.ARCHON_HERALD_ADMIN_API_KEY || '';
+const SESSION_SECRET_PLACEHOLDERS = new Set(['change-me', 'change-me-to-a-random-string']);
+
+if (!SESSION_SECRET) {
+    throw new Error('ARCHON_HERALD_SESSION_SECRET is required');
+}
+
+if (SESSION_SECRET_PLACEHOLDERS.has(SESSION_SECRET)) {
+    throw new Error('ARCHON_HERALD_SESSION_SECRET must be set to a non-placeholder value');
+}
 
 const app = express();
 const logins: Record<string, {
@@ -58,12 +69,16 @@ app.use(express.urlencoded({ extended: true }));  // OAuth2 token requests use f
 app.use(session({
     secret: SESSION_SECRET,
     resave: false,
-    saveUninitialized: true,
-    cookie: { secure: false } // Set to true if using HTTPS
+    saveUninitialized: false,
+    cookie: {
+        secure: 'auto',
+        sameSite: 'lax',
+        httpOnly: true,
+    }
 }));
 
 let serviceDID = '';
-const OWNER_DID = process.env.NS_OWNER_DID || '';
+const OWNER_DID = process.env.ARCHON_HERALD_OWNER_DID || '';
 
 async function initServiceIdentity(): Promise<void> {
     const currentId = await keymaster.getCurrentId();
@@ -84,7 +99,7 @@ async function initServiceIdentity(): Promise<void> {
     await keymaster.setCurrentId(SERVICE_NAME);
 
     if (!OWNER_DID) {
-        console.warn('Warning: NS_OWNER_DID not set — no user will have owner access');
+        console.warn('Warning: ARCHON_HERALD_OWNER_DID not set — no user will have owner access');
     } else {
         console.log(`Owner: ${OWNER_DID}`);
     }
@@ -92,6 +107,34 @@ async function initServiceIdentity(): Promise<void> {
     if (currentId) {
         await keymaster.setCurrentId(currentId);
     }
+}
+
+async function ensureIpnsKeyExists(): Promise<void> {
+    const listResponse = await fetch(`${IPFS_API_URL}/key/list`, {
+        method: 'POST',
+    });
+    if (!listResponse.ok) {
+        throw new Error(`IPFS key list failed: ${listResponse.statusText}`);
+    }
+
+    const listResult = await listResponse.json() as { Keys?: Array<{ Name?: string }> };
+    const hasKey = listResult.Keys?.some(key => key.Name === IPNS_KEY_NAME);
+
+    if (hasKey) {
+        return;
+    }
+
+    console.log(`Creating missing IPNS key: ${IPNS_KEY_NAME}`);
+    const genResponse = await fetch(`${IPFS_API_URL}/key/gen?arg=${encodeURIComponent(IPNS_KEY_NAME)}`, {
+        method: 'POST',
+    });
+
+    if (!genResponse.ok) {
+        throw new Error(`IPFS key gen failed: ${genResponse.statusText}`);
+    }
+
+    const genResult = await genResponse.json() as { Name?: string; Id?: string };
+    console.log(`Created IPNS key ${genResult.Name}: ${genResult.Id}`);
 }
 
 function validateName(name: any): { ok: boolean; trimmedName?: string; message?: string } {
@@ -108,17 +151,17 @@ function validateName(name: any): { ok: boolean; trimmedName?: string; message?:
     return { ok: true, trimmedName };
 }
 
-function checkNameAvailability(currentDb: any, trimmedName: string, excludeDid?: string): boolean {
-    if (!currentDb.users) return true;
-    for (const [existingDid, user] of Object.entries(currentDb.users) as [string, any][]) {
-        if (existingDid !== excludeDid && user.name?.toLowerCase() === trimmedName) {
-            return false;
-        }
-    }
-    return true;
+async function checkNameAvailability(trimmedName: string, excludeDid?: string): Promise<boolean> {
+    const existingDid = await db.findDidByName(trimmedName);
+    return !existingDid || existingDid === excludeDid;
 }
 
 async function issueOrUpdateCredential(did: string, user: any, trimmedName: string): Promise<void> {
+    if (!MEMBERSHIP_SCHEMA_DID) {
+        console.warn(`Skipping credential issuance for ${trimmedName}: ARCHON_HERALD_MEMBERSHIP_SCHEMA_DID is not set`);
+        return;
+    }
+
     await keymaster.setCurrentId(SERVICE_NAME);
 
     if (user.credentialDid) {
@@ -167,28 +210,43 @@ async function verifyBearerToken(req: Request): Promise<string | null> {
     return verify.responder;
 }
 
-function ensureUser(currentDb: any, did: string): any {
-    if (!currentDb.users) currentDb.users = {};
+async function ensureUser(did: string): Promise<User> {
     const now = new Date().toISOString();
-    if (!currentDb.users[did]) {
-        currentDb.users[did] = { firstLogin: now, lastLogin: now, logins: 1 };
+    const existingUser = await db.getUser(did);
+    if (existingUser) {
+        return existingUser;
     }
-    return currentDb.users[did];
+    const user = { firstLogin: now, lastLogin: now, logins: 1 };
+    await db.setUser(did, user);
+    return user;
 }
 
-function findNameDid(name: string): string | null {
-    const currentDb = db.loadDb();
-    if (!currentDb.users) return null;
-    for (const [did, user] of Object.entries(currentDb.users)) {
-        if (user.name?.toLowerCase() === name.toLowerCase()) {
-            return did;
+async function findNameDid(name: string): Promise<string | null> {
+    return db.findDidByName(name);
+}
+
+async function listUsers(): Promise<Record<string, User>> {
+    return db.listUsers();
+}
+
+function buildRegistry(users: Record<string, User>): { version: number; updated: string; names: Record<string, string> } {
+    const names: Record<string, string> = {};
+
+    for (const [did, user] of Object.entries(users)) {
+        if (user.name) {
+            names[user.name] = did;
         }
     }
-    return null;
+
+    return {
+        version: 1,
+        updated: new Date().toISOString(),
+        names,
+    };
 }
 
 async function resolveLightningEndpoint(name: string): Promise<{ did: string; endpoint: string } | null> {
-    const did = findNameDid(name);
+    const did = await findNameDid(name);
     if (!did) return null;
 
     const didDoc: any = await keymaster.resolveDID(did);
@@ -202,7 +260,72 @@ async function resolveLightningEndpoint(name: string): Promise<{ did: string; en
     return { did, endpoint: lightning.serviceEndpoint };
 }
 
+async function resolveAvatarImage(name: string): Promise<{
+    did: string;
+    avatarDid: string;
+    file: {
+        data: Buffer;
+        type: string;
+        filename?: string;
+        bytes?: number;
+    };
+} | null> {
+    const did = await findNameDid(name);
+    if (!did) return null;
+
+    const memberDoc: any = await keymaster.resolveDID(did);
+    const avatarDid = typeof memberDoc?.didDocumentData?.avatar === 'string'
+        ? memberDoc.didDocumentData.avatar.trim()
+        : '';
+
+    if (!avatarDid) return null;
+
+    const image = await keymaster.getImage(avatarDid);
+    const rawData = image?.file?.data;
+    const data = Buffer.isBuffer(rawData)
+        ? rawData
+        : rawData && typeof rawData === 'object' && (rawData as any).type === 'Buffer' && Array.isArray((rawData as any).data)
+            ? Buffer.from((rawData as any).data)
+            : null;
+
+    if (!data || !image?.file?.type || !image.image) {
+        return null;
+    }
+
+    return {
+        did,
+        avatarDid,
+        file: {
+            ...image.file,
+            data,
+        },
+    };
+}
+
+function getSafeAvatarContentType(contentType: string): string {
+    const normalizedType = contentType.trim().toLowerCase();
+    const allowedAvatarContentTypes = new Set([
+        'image/avif',
+        'image/gif',
+        'image/jpeg',
+        'image/jpg',
+        'image/png',
+        'image/webp',
+    ]);
+
+    return allowedAvatarContentTypes.has(normalizedType)
+        ? normalizedType
+        : 'application/octet-stream';
+}
+
 function isAuthenticated(req: Request, res: Response, next: NextFunction): void {
+    if (!req.session.user && req.session.challenge) {
+        const challengeData = logins[req.session.challenge];
+        if (challengeData) {
+            req.session.user = { did: challengeData.did };
+        }
+    }
+
     if (req.session.user) {
         return next();
     }
@@ -225,27 +348,20 @@ async function loginUser(response: string): Promise<any> {
     if (verify.match) {
         const challenge = verify.challenge;
         const did = verify.responder!;
-        const currentDb = db.loadDb();
-
-        if (!currentDb.users) {
-            currentDb.users = {};
-        }
-
         const now = new Date().toISOString();
+        const user = await db.getUser(did);
 
-        if (currentDb.users[did]) {
-            currentDb.users[did].lastLogin = now;
-            currentDb.users[did].logins = (currentDb.users[did].logins || 0) + 1;
-        }
-        else {
-            currentDb.users[did] = {
+        if (user) {
+            user.lastLogin = now;
+            user.logins = (user.logins || 0) + 1;
+            await db.setUser(did, user);
+        } else {
+            await db.setUser(did, {
                 firstLogin: now,
                 lastLogin: now,
                 logins: 1,
-            }
+            });
         }
-
-        db.writeDb(currentDb);
 
         logins[challenge] = {
             response,
@@ -272,12 +388,12 @@ app.options('/.well-known/{*path}', cors(corsOptions));
 
 // Helper function for OAuth
 async function getMemberByDID(did: string): Promise<any> {
-    const currentDb = db.loadDb();
-    if (currentDb.users && currentDb.users[did]) {
+    const user = await db.getUser(did);
+    if (user) {
         return {
-            ...currentDb.users[did],
+            ...user,
             did,
-            handle: currentDb.users[did].name
+            handle: user.name
         };
     }
     return null;
@@ -290,7 +406,7 @@ console.log('OAuth routes mounted at /oauth');
 
 // OIDC Discovery at root level (required by spec)
 app.get('/.well-known/openid-configuration', (_req: Request, res: Response) => {
-    const issuer = process.env.NS_PUBLIC_URL || `http://localhost:${process.env.NS_HOST_PORT || 3300}`;
+    const issuer = PUBLIC_URL;
     res.json({
         issuer,
         authorization_endpoint: `${issuer}/oauth/authorize`,
@@ -298,7 +414,7 @@ app.get('/.well-known/openid-configuration', (_req: Request, res: Response) => {
         userinfo_endpoint: `${issuer}/oauth/userinfo`,
         response_types_supported: ['code'],
         subject_types_supported: ['public'],
-        id_token_signing_alg_values_supported: ['none'],
+        id_token_signing_alg_values_supported: ['ES256'],
         scopes_supported: ['openid', 'profile'],
         claims_supported: ['sub', 'name', 'preferred_username', 'picture']
     });
@@ -318,6 +434,7 @@ app.get('/api/config', (_: Request, res: Response) => {
         serviceName: SERVICE_NAME,
         serviceDomain: SERVICE_DOMAIN,
         publicUrl: PUBLIC_URL,
+        walletUrl: WALLET_URL,
     });
 });
 
@@ -405,12 +522,10 @@ app.get('/api/check-auth', async (req: Request, res: Response) => {
 
         const isAuthenticated = !!req.session.user;
         const userDID = isAuthenticated ? req.session.user?.did : null;
-        const currentDb = db.loadDb();
-
         let profile: any = null;
 
-        if (isAuthenticated && userDID && currentDb.users) {
-            profile = currentDb.users[userDID] || null;
+        if (isAuthenticated && userDID) {
+            profile = await db.getUser(userDID);
         }
 
         const auth = {
@@ -430,8 +545,7 @@ app.get('/api/check-auth', async (req: Request, res: Response) => {
 
 app.get('/api/users', isAuthenticated, async (_: Request, res: Response) => {
     try {
-        const currentDb = db.loadDb();
-        const users = currentDb.users ? Object.keys(currentDb.users) : [];
+        const users = Object.keys(await listUsers());
         res.json(users);
     }
     catch (error) {
@@ -442,7 +556,7 @@ app.get('/api/users', isAuthenticated, async (_: Request, res: Response) => {
 
 app.get('/api/admin', isOwner, async (_: Request, res: Response) => {
     try {
-        res.json(db.loadDb());
+        res.json({ users: await listUsers() });
     }
     catch (error) {
         console.log(error);
@@ -454,22 +568,7 @@ app.get('/api/admin', isOwner, async (_: Request, res: Response) => {
 app.post('/api/admin/publish', isOwner, async (_: Request, res: Response) => {
     try {
         // Build registry from DB
-        const currentDb = db.loadDb();
-        const names: Record<string, string> = {};
-
-        if (currentDb.users) {
-            for (const [did, user] of Object.entries(currentDb.users)) {
-                if (user.name) {
-                    names[user.name] = did;
-                }
-            }
-        }
-
-        const registry = {
-            version: 1,
-            updated: new Date().toISOString(),
-            names
-        };
+        const registry = buildRegistry(await listUsers());
 
         const registryJson = JSON.stringify(registry, null, 2);
 
@@ -521,14 +620,13 @@ app.post('/api/admin/publish', isOwner, async (_: Request, res: Response) => {
 app.get('/api/profile/:did', isAuthenticated, async (req: Request, res: Response) => {
     try {
         const did = req.params.did as string;
-        const currentDb = db.loadDb();
-
-        if (!currentDb.users || !currentDb.users[did]) {
+        const user = await db.getUser(did);
+        if (!user) {
             res.status(404).send('Not found');
             return;
         }
 
-        const profile: User = { ...currentDb.users[did] };
+        const profile: User = { ...user };
 
         profile.did = did;
         profile.isUser = (req.session?.user?.did === did);
@@ -544,15 +642,13 @@ app.get('/api/profile/:did', isAuthenticated, async (req: Request, res: Response
 app.get('/api/profile/:did/name', isAuthenticated, async (req: Request, res: Response) => {
     try {
         const did = req.params.did as string;
-        const currentDb = db.loadDb();
-
-        if (!currentDb.users || !currentDb.users[did]) {
+        const user = await db.getUser(did);
+        if (!user) {
             res.status(404).send('Not found');
             return;
         }
 
-        const profile = currentDb.users[did];
-        res.json({ name: profile.name });
+        res.json({ name: user.name });
     }
     catch (error) {
         console.log(error);
@@ -576,27 +672,20 @@ app.put('/api/profile/:did/name', isAuthenticated, async (req: Request, res: Res
         }
         const trimmedName = validation.trimmedName!;
 
-        const currentDb = db.loadDb();
-        if (!currentDb.users || !currentDb.users[did]) {
+        const user = await db.getUser(did);
+        if (!user) {
             res.status(404).send('Not found');
             return;
         }
 
-        if (!checkNameAvailability(currentDb, trimmedName, did)) {
+        if (!(await checkNameAvailability(trimmedName, did))) {
             res.status(409).json({ ok: false, message: 'Name already taken' });
             return;
         }
 
-        const user = currentDb.users[did];
-        const oldName = user.name;
         user.name = trimmedName;
         await issueOrUpdateCredential(did, user, trimmedName);
-        db.writeDb(currentDb);
-
-        // Invalidate old avatar cache if name changed
-        if (oldName && oldName !== trimmedName) {
-            invalidateAvatarCache(oldName);
-        }
+        await db.setUser(did, user);
 
         res.json({ ok: true, message: `name set to ${trimmedName}` });
     }
@@ -616,248 +705,19 @@ app.delete('/api/profile/:did/name', isAuthenticated, async (req: Request, res: 
             return;
         }
 
-        const currentDb = db.loadDb();
-        if (!currentDb.users || !currentDb.users[did]) {
+        const user = await db.getUser(did);
+        if (!user) {
             res.status(404).send('Not found');
             return;
         }
 
-        const user = currentDb.users[did];
         const deletedName = user.name;
 
         await revokeCredential(user, deletedName || '');
         delete user.name;
-        db.writeDb(currentDb);
-
-        // Invalidate avatar cache for deleted name
-        if (deletedName) {
-            invalidateAvatarCache(deletedName);
-        }
+        await db.setUser(did, user);
 
         res.json({ ok: true, message: `name '${deletedName}' deleted and credential revoked` });
-    }
-    catch (error) {
-        console.log(error);
-        res.status(500).send(String(error));
-    }
-});
-
-// Valid robohash sets
-const ROBOHASH_SETS = ['set1', 'set2', 'set3', 'set4', 'set5'];
-const ROBOHASH_BGS = ['', 'bg1', 'bg2'];
-const DEFAULT_ROBOHASH_SET = 'set4';
-const DEFAULT_ROBOHASH_BG = '';
-
-// Avatar cache configuration
-const AVATAR_CACHE_DIR = process.env.NS_AVATAR_CACHE_DIR || 'data/avatar-cache';
-const AVATAR_CACHE_MAX_AGE = 60 * 60 * 24 * 7; // 7 days in seconds
-
-// Ensure avatar cache directory exists
-if (!fs.existsSync(AVATAR_CACHE_DIR)) {
-    fs.mkdirSync(AVATAR_CACHE_DIR, { recursive: true });
-    console.log(`Created avatar cache directory: ${AVATAR_CACHE_DIR}`);
-}
-
-function buildRobohashUrl(identifier: string, set?: string, bg?: string): string {
-    const validSet = set && ROBOHASH_SETS.includes(set) ? set : DEFAULT_ROBOHASH_SET;
-    const validBg = bg && ROBOHASH_BGS.includes(bg) ? bg : DEFAULT_ROBOHASH_BG;
-    let url = `https://robohash.org/${encodeURIComponent(identifier)}?set=${validSet}`;
-    if (validBg) {
-        url += `&bgset=${validBg}`;
-    }
-    return url;
-}
-
-function getAvatarCacheKey(name: string, set: string, bg: string): string {
-    const data = `${name}:${set}:${bg}`;
-    return crypto.createHash('sha256').update(data).digest('hex').substring(0, 16);
-}
-
-function getAvatarCachePath(cacheKey: string): string {
-    return path.join(AVATAR_CACHE_DIR, `${cacheKey}.png`);
-}
-
-async function fetchAndCacheAvatar(url: string, cachePath: string): Promise<Buffer> {
-    const response = await fetch(url);
-    if (!response.ok) {
-        throw new Error(`Failed to fetch avatar: ${response.statusText}`);
-    }
-    const buffer = Buffer.from(await response.arrayBuffer());
-    fs.writeFileSync(cachePath, buffer);
-    return buffer;
-}
-
-function invalidateAvatarCache(name: string): void {
-    // Invalidate all possible cache combinations for this name
-    for (const set of ROBOHASH_SETS) {
-        for (const bg of ROBOHASH_BGS) {
-            const cacheKey = getAvatarCacheKey(name, set, bg);
-            const cachePath = getAvatarCachePath(cacheKey);
-            if (fs.existsSync(cachePath)) {
-                fs.unlinkSync(cachePath);
-                console.log(`Invalidated avatar cache: ${cachePath}`);
-            }
-        }
-    }
-}
-
-// Get avatar URL
-app.get('/api/profile/:did/avatar', isAuthenticated, async (req: Request, res: Response) => {
-    try {
-        const did = req.params.did as string;
-        const currentDb = db.loadDb();
-
-        if (!currentDb.users || !currentDb.users[did]) {
-            res.status(404).send('Not found');
-            return;
-        }
-
-        const user = currentDb.users[did];
-        const robohashSet = user.robohashSet || DEFAULT_ROBOHASH_SET;
-        const robohashBg = user.robohashBg || DEFAULT_ROBOHASH_BG;
-        // Use name for robohash if available, fall back to DID
-        const robohashIdentifier = user.name || did;
-        const defaultUrl = buildRobohashUrl(robohashIdentifier, robohashSet, robohashBg);
-
-        res.json({
-            avatarUrl: user.avatarUrl || null,
-            effectiveUrl: user.avatarUrl || defaultUrl,
-            isCustom: !!user.avatarUrl,
-            robohashSet,
-            robohashBg,
-            availableSets: ROBOHASH_SETS,
-            availableBgs: ROBOHASH_BGS
-        });
-    }
-    catch (error) {
-        console.log(error);
-        res.status(500).send(String(error));
-    }
-});
-
-// Set custom avatar URL or robohash preferences
-app.put('/api/profile/:did/avatar', isAuthenticated, async (req: Request, res: Response) => {
-    try {
-        const did = req.params.did as string;
-
-        if (!req.session.user || req.session.user.did !== did) {
-            res.status(403).json({ message: 'Forbidden' });
-            return;
-        }
-
-        const { avatarUrl, robohashSet, robohashBg } = req.body;
-
-        // Validate URL if provided
-        if (avatarUrl) {
-            try {
-                const url = new URL(avatarUrl);
-                if (!['http:', 'https:'].includes(url.protocol)) {
-                    res.status(400).json({ ok: false, message: 'Avatar URL must use http or https' });
-                    return;
-                }
-            } catch {
-                res.status(400).json({ ok: false, message: 'Invalid URL format' });
-                return;
-            }
-        }
-
-        // Validate robohash set if provided
-        if (robohashSet && !ROBOHASH_SETS.includes(robohashSet)) {
-            res.status(400).json({ ok: false, message: `Invalid robohash set. Must be one of: ${ROBOHASH_SETS.join(', ')}` });
-            return;
-        }
-
-        // Validate robohash background if provided
-        if (robohashBg && !ROBOHASH_BGS.includes(robohashBg)) {
-            res.status(400).json({ ok: false, message: `Invalid robohash background. Must be one of: ${ROBOHASH_BGS.join(', ')}` });
-            return;
-        }
-
-        const currentDb = db.loadDb();
-        if (!currentDb.users || !currentDb.users[did]) {
-            res.status(404).send('Not found');
-            return;
-        }
-
-        const user = currentDb.users[did];
-        
-        // Update avatar URL if provided (null clears it)
-        if (avatarUrl !== undefined) {
-            user.avatarUrl = avatarUrl || null;
-        }
-        
-        // Update robohash preferences if provided
-        if (robohashSet !== undefined) {
-            user.robohashSet = robohashSet || DEFAULT_ROBOHASH_SET;
-        }
-        if (robohashBg !== undefined) {
-            user.robohashBg = robohashBg || DEFAULT_ROBOHASH_BG;
-        }
-        
-        db.writeDb(currentDb);
-
-        // Invalidate avatar cache if user has a name
-        if (user.name) {
-            invalidateAvatarCache(user.name);
-        }
-
-        const effectiveSet = user.robohashSet || DEFAULT_ROBOHASH_SET;
-        const effectiveBg = user.robohashBg || DEFAULT_ROBOHASH_BG;
-        // Use name for robohash if available, fall back to DID
-        const robohashIdentifier = user.name || did;
-        const defaultUrl = buildRobohashUrl(robohashIdentifier, effectiveSet, effectiveBg);
-
-        res.json({
-            ok: true,
-            avatarUrl: user.avatarUrl,
-            effectiveUrl: user.avatarUrl || defaultUrl,
-            isCustom: !!user.avatarUrl,
-            robohashSet: effectiveSet,
-            robohashBg: effectiveBg,
-            message: avatarUrl ? 'Avatar URL set' : 'Avatar settings updated'
-        });
-    }
-    catch (error) {
-        console.log(error);
-        res.status(500).send(String(error));
-    }
-});
-
-// Delete custom avatar URL (revert to robohash default)
-app.delete('/api/profile/:did/avatar', isAuthenticated, async (req: Request, res: Response) => {
-    try {
-        const did = req.params.did as string;
-
-        if (!req.session.user || req.session.user.did !== did) {
-            res.status(403).json({ message: 'Forbidden' });
-            return;
-        }
-
-        const currentDb = db.loadDb();
-        if (!currentDb.users || !currentDb.users[did]) {
-            res.status(404).send('Not found');
-            return;
-        }
-
-        const user = currentDb.users[did];
-        delete user.avatarUrl;
-        // Keep robohash preferences, only clear custom URL
-        db.writeDb(currentDb);
-
-        const effectiveSet = user.robohashSet || DEFAULT_ROBOHASH_SET;
-        const effectiveBg = user.robohashBg || DEFAULT_ROBOHASH_BG;
-        // Use name for robohash if available, fall back to DID
-        const robohashIdentifier = user.name || did;
-        const defaultUrl = buildRobohashUrl(robohashIdentifier, effectiveSet, effectiveBg);
-
-        res.json({
-            ok: true,
-            effectiveUrl: defaultUrl,
-            isCustom: false,
-            robohashSet: effectiveSet,
-            robohashBg: effectiveBg,
-            message: 'Avatar reverted to default'
-        });
     }
     catch (error) {
         console.log(error);
@@ -881,17 +741,16 @@ app.put('/api/name', async (req: Request, res: Response) => {
         }
         const trimmedName = validation.trimmedName!;
 
-        const currentDb = db.loadDb();
-        const user = ensureUser(currentDb, did);
+        const user = await ensureUser(did);
 
-        if (!checkNameAvailability(currentDb, trimmedName, did)) {
+        if (!(await checkNameAvailability(trimmedName, did))) {
             res.status(409).json({ ok: false, message: 'Name already taken' });
             return;
         }
 
         user.name = trimmedName;
         await issueOrUpdateCredential(did, user, trimmedName);
-        db.writeDb(currentDb);
+        await db.setUser(did, user);
 
         let credential = null;
         if (user.credentialDid) {
@@ -922,13 +781,12 @@ app.delete('/api/name', async (req: Request, res: Response) => {
             return;
         }
 
-        const currentDb = db.loadDb();
-        if (!currentDb.users?.[did]) {
+        const user = await db.getUser(did);
+        if (!user) {
             res.status(404).json({ ok: false, message: 'User not found' });
             return;
         }
 
-        const user = currentDb.users[did];
         const deletedName = user.name;
 
         if (!deletedName) {
@@ -938,7 +796,7 @@ app.delete('/api/name', async (req: Request, res: Response) => {
 
         await revokeCredential(user, deletedName);
         delete user.name;
-        db.writeDb(currentDb);
+        await db.setUser(did, user);
 
         res.json({ ok: true, message: `name '${deletedName}' deleted and credential revoked` });
     }
@@ -951,24 +809,7 @@ app.delete('/api/name', async (req: Request, res: Response) => {
 // Export name registry for IPNS publication
 app.get('/api/registry', async (_: Request, res: Response) => {
     try {
-        const currentDb = db.loadDb();
-        const names: Record<string, string> = {};
-
-        if (currentDb.users) {
-            for (const [did, user] of Object.entries(currentDb.users)) {
-                if (user.name) {
-                    names[user.name] = did;
-                }
-            }
-        }
-
-        const registry = {
-            version: 1,
-            updated: new Date().toISOString(),
-            names
-        };
-
-        res.json(registry);
+        res.json(buildRegistry(await listUsers()));
     }
     catch (error) {
         console.log(error);
@@ -980,15 +821,10 @@ app.get('/api/registry', async (_: Request, res: Response) => {
 app.get('/api/name/:name', async (req: Request, res: Response) => {
     try {
         const name = (req.params.name as string).trim().toLowerCase();
-        const currentDb = db.loadDb();
-
-        if (currentDb.users) {
-            for (const [did, user] of Object.entries(currentDb.users)) {
-                if (user.name?.toLowerCase() === name) {
-                    res.json({ name, did });
-                    return;
-                }
-            }
+        const did = await findNameDid(name);
+        if (did) {
+            res.json({ name, did });
+            return;
         }
 
         res.status(404).json({ error: 'Name not found' });
@@ -999,85 +835,10 @@ app.get('/api/name/:name', async (req: Request, res: Response) => {
     }
 });
 
-// Avatar endpoint - serve cached robohash or redirect to custom URL
-app.get('/api/name/:name/avatar', async (req: Request, res: Response) => {
-    try {
-        const name = (req.params.name as string).trim().toLowerCase();
-        const currentDb = db.loadDb();
-
-        let userDid: string | null = null;
-        let user: any = null;
-
-        if (currentDb.users) {
-            for (const [did, u] of Object.entries(currentDb.users)) {
-                if (u.name?.toLowerCase() === name) {
-                    userDid = did;
-                    user = u;
-                    break;
-                }
-            }
-        }
-
-        if (!userDid || !user) {
-            res.status(404).json({ error: 'Name not found' });
-            return;
-        }
-
-        // For custom avatar URLs, redirect (don't cache external images)
-        if (user.avatarUrl) {
-            res.redirect(302, user.avatarUrl);
-            return;
-        }
-
-        // For robohash avatars, serve from cache
-        const robohashSet = user.robohashSet || DEFAULT_ROBOHASH_SET;
-        const robohashBg = user.robohashBg || DEFAULT_ROBOHASH_BG;
-        const cacheKey = getAvatarCacheKey(name, robohashSet, robohashBg);
-        const cachePath = getAvatarCachePath(cacheKey);
-
-        let imageBuffer: Buffer;
-
-        if (fs.existsSync(cachePath)) {
-            // Serve from cache
-            imageBuffer = fs.readFileSync(cachePath);
-        } else {
-            // Fetch from robohash and cache
-            const robohashUrl = buildRobohashUrl(name, robohashSet, robohashBg);
-            imageBuffer = await fetchAndCacheAvatar(robohashUrl, cachePath);
-            console.log(`Cached avatar for ${name}: ${cachePath}`);
-        }
-
-        res.set('Content-Type', 'image/png');
-        res.set('Cache-Control', `public, max-age=${AVATAR_CACHE_MAX_AGE}`);
-        res.send(imageBuffer);
-    }
-    catch (error) {
-        console.log(error);
-        res.status(500).send(String(error));
-    }
-});
-
 // Public directory.json - same as /api/registry for IPNS compatibility
 app.get('/directory.json', async (_: Request, res: Response) => {
     try {
-        const currentDb = db.loadDb();
-        const names: Record<string, string> = {};
-
-        if (currentDb.users) {
-            for (const [did, user] of Object.entries(currentDb.users)) {
-                if (user.name) {
-                    names[user.name] = did;
-                }
-            }
-        }
-
-        const registry = {
-            version: 1,
-            updated: new Date().toISOString(),
-            names
-        };
-
-        res.json(registry);
+        res.json(buildRegistry(await listUsers()));
     }
     catch (error) {
         console.log(error);
@@ -1090,19 +851,7 @@ app.get('/directory.json', async (_: Request, res: Response) => {
 app.get('/api/member/:name', async (req: Request, res: Response) => {
     try {
         const name = (req.params.name as string).trim().toLowerCase();
-        const currentDb = db.loadDb();
-
-        let memberDid: string | null = null;
-
-        if (currentDb.users) {
-            for (const [did, user] of Object.entries(currentDb.users)) {
-                if (user.name?.toLowerCase() === name) {
-                    memberDid = did;
-                    break;
-                }
-            }
-        }
-
+        const memberDid = await findNameDid(name);
         if (!memberDid) {
             res.status(404).json({ error: 'Name not found', name });
             return;
@@ -1119,14 +868,39 @@ app.get('/api/member/:name', async (req: Request, res: Response) => {
     }
 });
 
+// Resolve a member name to their avatar image
+app.get('/api/name/:name/avatar', async (req: Request, res: Response) => {
+    try {
+        const name = (req.params.name as string).trim().toLowerCase();
+        const avatar = await resolveAvatarImage(name);
+
+        if (!avatar) {
+            res.status(404).json({ error: 'Avatar not found', name });
+            return;
+        }
+
+        res.set('X-Content-Type-Options', 'nosniff');
+        res.set('Content-Type', getSafeAvatarContentType(avatar.file.type));
+        res.set('Content-Length', String(avatar.file.data.length));
+        if (avatar.file.filename) {
+            res.set('Content-Disposition', `inline; filename="${encodeURIComponent(avatar.file.filename)}"`);
+        }
+
+        res.send(avatar.file.data);
+    }
+    catch (error: any) {
+        console.log(error);
+        res.status(500).json({ error: error.message || String(error) });
+    }
+});
+
 
 // Admin: Delete a user
 app.delete('/api/admin/user/:did', isOwner, async (req: Request, res: Response) => {
     try {
         const did = decodeURIComponent(req.params.did as string);
-        const currentDb = db.loadDb();
-
-        if (!currentDb.users || !currentDb.users[did]) {
+        const user = await db.getUser(did);
+        if (!user) {
             res.status(404).json({ error: 'User not found' });
             return;
         }
@@ -1137,9 +911,8 @@ app.delete('/api/admin/user/:did', isOwner, async (req: Request, res: Response) 
             return;
         }
 
-        const userName = currentDb.users[did].name || did;
-        delete currentDb.users[did];
-        db.writeDb(currentDb);
+        const userName = user.name || did;
+        await db.deleteUser(did);
 
         console.log(`Deleted user ${userName} (${did})`);
         res.json({ ok: true, message: `User ${userName} deleted` });
@@ -1159,8 +932,7 @@ app.get('/api/credential', isAuthenticated, async (req: Request, res: Response) 
             return;
         }
 
-        const currentDb = db.loadDb();
-        const user = currentDb.users?.[userDid];
+        const user = await db.getUser(userDid);
 
         if (!user) {
             res.status(404).json({ error: 'User not found' });
@@ -1282,22 +1054,7 @@ app.get('/api/lnurlp/:name/callback', async (req: Request, res: Response) => {
 // GET /.well-known/names — list/directory of registered names
 app.get('/.well-known/names', async (_: Request, res: Response) => {
     try {
-        const currentDb = db.loadDb();
-        const names: Record<string, string> = {};
-
-        if (currentDb.users) {
-            for (const [did, user] of Object.entries(currentDb.users)) {
-                if (user.name) {
-                    names[user.name] = did;
-                }
-            }
-        }
-
-        res.json({
-            version: 1,
-            updated: new Date().toISOString(),
-            names
-        });
+        res.json(buildRegistry(await listUsers()));
     }
     catch (error) {
         console.log(error);
@@ -1309,7 +1066,7 @@ app.get('/.well-known/names', async (_: Request, res: Response) => {
 app.get('/.well-known/names/:name', async (req: Request, res: Response) => {
     try {
         const name = (req.params.name as string).trim().toLowerCase();
-        const did = findNameDid(name);
+        const did = await findNameDid(name);
 
         if (!did) {
             res.status(404).json({ error: 'Name not found' });
@@ -1317,54 +1074,6 @@ app.get('/.well-known/names/:name', async (req: Request, res: Response) => {
         }
 
         res.json({ name, did });
-    }
-    catch (error) {
-        console.log(error);
-        res.status(500).send(String(error));
-    }
-});
-
-// PUT /.well-known/names/:name — register/claim a name (requires Bearer DID auth)
-app.put('/.well-known/names/:name', async (req: Request, res: Response) => {
-    try {
-        const did = await verifyBearerToken(req);
-        if (!did) {
-            res.status(401).json({ ok: false, message: 'Valid Bearer token (response DID) required' });
-            return;
-        }
-
-        const validation = validateName(req.params.name);
-        if (!validation.ok) {
-            res.status(400).json({ ok: false, message: validation.message });
-            return;
-        }
-        const trimmedName = validation.trimmedName!;
-
-        const currentDb = db.loadDb();
-        const user = ensureUser(currentDb, did);
-
-        if (!checkNameAvailability(currentDb, trimmedName, did)) {
-            res.status(409).json({ ok: false, message: 'Name already taken' });
-            return;
-        }
-
-        user.name = trimmedName;
-        await issueOrUpdateCredential(did, user, trimmedName);
-        db.writeDb(currentDb);
-
-        let credential = null;
-        if (user.credentialDid) {
-            credential = await keymaster.getCredential(user.credentialDid);
-        }
-
-        res.json({
-            ok: true,
-            name: trimmedName,
-            did,
-            credentialDid: user.credentialDid,
-            credentialIssuedAt: user.credentialIssuedAt,
-            credential,
-        });
     }
     catch (error) {
         console.log(error);
@@ -1397,7 +1106,7 @@ app.get('/.well-known/webfinger', async (req: Request, res: Response) => {
             return;
         }
 
-        const did = findNameDid(name);
+        const did = await findNameDid(name);
         if (!did) {
             res.status(404).json({ error: 'Name not found' });
             return;
@@ -1438,21 +1147,6 @@ app.get('/.well-known/webfinger', async (req: Request, res: Response) => {
     }
 });
 
-if (process.env.NS_SERVE_CLIENT !== 'false') {
-    const __dirname = path.dirname(fileURLToPath(import.meta.url));
-    const clientBuildPath = path.join(__dirname, '../../client/build');
-    app.use(express.static(clientBuildPath));
-
-    app.use((req, res) => {
-        if (!req.path.startsWith('/api')) {
-            res.sendFile(path.join(clientBuildPath, 'index.html'));
-        } else {
-            console.warn(`Warning: Unhandled API endpoint - ${req.method} ${req.originalUrl}`);
-            res.status(404).json({ message: 'Endpoint not found' });
-        }
-    });
-}
-
 process.on('uncaughtException', (error) => {
     console.error('Unhandled exception caught', error);
 });
@@ -1462,38 +1156,42 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 app.listen(HOST_PORT, '0.0.0.0', async () => {
-    if (NS_DATABASE_TYPE === 'sqlite') {
-        db = new DbSqlite();
+    if (HERALD_DATABASE_TYPE === 'sqlite') {
+        db = new DbSqlite(path.join(DATA_DIR, 'db.sqlite'));
+    } else if (HERALD_DATABASE_TYPE === 'redis') {
+        db = new DbRedis(SERVICE_NAME);
     } else {
-        db = new DbJson();
+        db = new DbJson(path.join(DATA_DIR, 'db.json'));
     }
 
     if (db.init) {
         try {
-            db.init();
+            await db.init();
         } catch (e: any) {
             console.error(`Error initialising database: ${e.message}`);
             process.exit(1);
         }
     }
 
-    if (process.env.NS_KEYMASTER_URL) {
+    const keymasterUrl = process.env.ARCHON_HERALD_KEYMASTER_URL?.trim();
+
+    if (keymasterUrl) {
         keymaster = new KeymasterClient();
         await keymaster.connect({
-            url: process.env.NS_KEYMASTER_URL,
+            url: keymasterUrl,
             waitUntilReady: true,
             intervalSeconds: 5,
             chatty: true,
             // @ts-ignore - apiKey added in @didcid/* 0.4.x
             apiKey: ADMIN_API_KEY || undefined,
         });
-        console.log(`${SERVICE_NAME} using keymaster at ${process.env.NS_KEYMASTER_URL}`);
+        console.log(`${SERVICE_NAME} using keymaster at ${keymasterUrl}`);
     }
     else {
-        const passphrase = process.env.NS_WALLET_PASSPHRASE;
+        const passphrase = process.env.ARCHON_HERALD_WALLET_PASSPHRASE;
 
         if (!passphrase) {
-            console.error('Error: NS_WALLET_PASSPHRASE environment variable not set');
+            console.error('Error: ARCHON_HERALD_WALLET_PASSPHRASE environment variable not set');
             process.exit(1);
         }
 
@@ -1504,7 +1202,7 @@ app.listen(HOST_PORT, '0.0.0.0', async () => {
             intervalSeconds: 5,
             chatty: true,
         });
-        const wallet = new WalletJson('wallet.json', 'data');
+        const wallet = new WalletJson('wallet.json', DATA_DIR);
         const cipher = new CipherNode();
         keymaster = new Keymaster({
             gatekeeper,
@@ -1519,6 +1217,7 @@ app.listen(HOST_PORT, '0.0.0.0', async () => {
     }
 
     await initServiceIdentity();
+    await ensureIpnsKeyExists();
     console.log(`${SERVICE_NAME} using wallet at ${WALLET_URL}`);
     console.log(`${SERVICE_NAME} listening on port ${HOST_PORT}`);
 });

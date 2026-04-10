@@ -1,3 +1,10 @@
-# https://www.robotstxt.org/robotstxt.html
+# archon.social — robots.txt
+# AI agents: see /llms.txt and /agents.html for structured guidance.
+
 User-agent: *
-Disallow:
+Allow: /
+
+Sitemap: https://archon.social/sitemap.xml
+
+# Machine-readable AI guidance (Jeremy Howard's llms.txt convention)
+# https://llmstxt.org

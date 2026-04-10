@@ -7,7 +7,7 @@ import {
     Routes,
     Route,
 } from "react-router-dom";
-import { Alert, Box, Button, TextField, Typography, Select, MenuItem, FormControl, InputLabel } from '@mui/material';
+import { Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, TextField, Typography } from '@mui/material';
 import { Table, TableBody, TableRow, TableCell } from '@mui/material';
 import axios from 'axios';
 import { format, differenceInDays } from 'date-fns';
@@ -50,6 +50,21 @@ function App() {
     );
 }
 
+function buildWalletUrl(walletUrl: string, params: Record<string, string>) {
+    try {
+        const url = new URL(walletUrl);
+
+        for (const [key, value] of Object.entries(params)) {
+            url.searchParams.set(key, value);
+        }
+
+        return url.toString();
+    }
+    catch {
+        return null;
+    }
+}
+
 function Header({ title, showTagline = false } : { title: string, showTagline?: boolean }) {
     return (
         <Box
@@ -75,6 +90,34 @@ function Header({ title, showTagline = false } : { title: string, showTagline?: 
     )
 }
 
+function LoadingShell({ title }: { title: string }) {
+    return (
+        <div className="App">
+            <Header title={title} />
+            <Box
+                sx={{
+                    maxWidth: 720,
+                    mx: 'auto',
+                    minHeight: 180,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: '#f8f9fa',
+                    borderRadius: 2,
+                    border: '1px solid #e9ecef',
+                }}
+            >
+                <CircularProgress size={32} />
+            </Box>
+        </div>
+    );
+}
+
+interface HomeDirectoryEntry {
+    name: string;
+    did: string;
+}
+
 function Home() {
     const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
     const [auth, setAuth] = useState<AuthState | null>(null);
@@ -83,9 +126,24 @@ function Home() {
     const [logins, setLogins] = useState<number>(0);
     const [publicUrl, setPublicUrl] = useState<string>('');
     const [serviceDomain, setServiceDomain] = useState<string>('');
-    const [serviceName, setServiceName] = useState<string>('Name Service');
+    const [serviceName, setServiceName] = useState<string>('archon.social');
+    const [directory, setDirectory] = useState<HomeDirectoryEntry[]>([]);
+    const [directoryLoading, setDirectoryLoading] = useState<boolean>(true);
+    const [searchQuery, setSearchQuery] = useState<string>('');
 
     const navigate = useNavigate();
+    const agentDomain = (() => {
+        if (serviceDomain) {
+            return serviceDomain;
+        }
+
+        try {
+            return publicUrl ? new URL(publicUrl).host : 'archon.social';
+        }
+        catch {
+            return 'archon.social';
+        }
+    })();
 
     useEffect(() => {
         const init = async () => {
@@ -93,7 +151,7 @@ function Home() {
                 const configResponse = await api.get(`/config`);
                 setPublicUrl(configResponse.data.publicUrl);
                 setServiceDomain(configResponse.data.serviceDomain);
-                setServiceName(configResponse.data.serviceName);
+                setServiceName(configResponse.data.serviceName || 'archon.social');
 
                 const response = await api.get(`/check-auth`);
                 const auth: AuthState = response.data;
@@ -110,12 +168,33 @@ function Home() {
                 }
             }
             catch (error: any) {
-                window.alert(error);
+                console.error('config/auth init failed:', error);
+            }
+
+            // Fetch the public directory — no auth required
+            try {
+                const dirResponse = await api.get(`/registry`);
+                const data = dirResponse.data;
+                const entries: HomeDirectoryEntry[] = Object.entries(data.names || {}).map(
+                    ([name, did]) => ({ name, did: did as string })
+                );
+                entries.sort((a, b) => a.name.localeCompare(b.name));
+                setDirectory(entries);
+            }
+            catch (error: any) {
+                console.error('directory fetch failed:', error);
+            }
+            finally {
+                setDirectoryLoading(false);
             }
         };
 
         init();
-    }, []);
+    }, [navigate]);
+
+    const filteredDirectory = searchQuery
+        ? directory.filter(e => e.name.toLowerCase().includes(searchQuery.toLowerCase()))
+        : directory;
 
     async function login() {
         navigate('/login');
@@ -125,32 +204,26 @@ function Home() {
         navigate('/logout');
     }
 
-    if (!auth) {
-        return (
-            <div className="App">
-                <Header title={serviceName} showTagline />
-                <p>Loading...</p>
-            </div>
-        )
-    }
-
+    // Landing page renders immediately — no blocking on auth. Directory loads
+    // in parallel and the authenticated welcome block replaces it when ready.
+    const showHeader = auth && isAuthenticated;
     return (
         <div className="App">
-            <Header title={serviceName} showTagline />
+            {showHeader && <Header title={serviceName} showTagline />}
 
-            {isAuthenticated ? (
+            {auth && isAuthenticated ? (
                 <Box sx={{ maxWidth: 600, mx: 'auto', textAlign: 'center' }}>
-                    <Box sx={{ 
-                        backgroundColor: '#f8f9fa', 
-                        borderRadius: 2, 
-                        p: 3, 
+                    <Box sx={{
+                        backgroundColor: '#f8f9fa',
+                        borderRadius: 2,
+                        p: 3,
                         mb: 3,
                         border: '1px solid #e9ecef'
                     }}>
                         <Typography variant="h5" sx={{ mb: 2, color: '#2c3e50' }}>
                             {logins > 1 ? `Welcome back, ${userName || 'friend'}!` : `Welcome aboard!`}
                         </Typography>
-                        
+
                         {userName ? (
                             <Typography variant="h6" sx={{ color: '#27ae60', fontWeight: 600 }}>
                                 🎉 Your handle: <strong>{userName}@{serviceDomain}</strong>
@@ -165,7 +238,7 @@ function Home() {
                     <Typography variant="body2" sx={{ mb: 2, color: '#666' }}>
                         You have access to:
                     </Typography>
-                    
+
                     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, justifyContent: 'center', mb: 3 }}>
                         <Button component={Link} to={`/profile/${userDID}`} variant="outlined" size="small">
                             My Profile
@@ -188,103 +261,240 @@ function Home() {
                     </Button>
                 </Box>
             ) : (
-                <Box sx={{ maxWidth: 700, mx: 'auto', textAlign: 'center' }}>
-                    <Box sx={{ 
-                        backgroundColor: '#f8f9fa', 
-                        borderRadius: 2, 
-                        p: 4, 
-                        mb: 4,
-                        border: '1px solid #e9ecef'
+                <Box sx={{ maxWidth: 1100, mx: 'auto', px: 2 }}>
+                    {/* Hero */}
+                    <Box sx={{
+                        textAlign: 'center',
+                        pt: { xs: 3, md: 6 },
+                        pb: { xs: 4, md: 6 },
                     }}>
-                        <Typography variant="h4" sx={{ mb: 2, fontWeight: 600, color: '#2c3e50' }}>
-                            Have you named your DID?
+                        <Typography
+                            variant="h2"
+                            sx={{
+                                fontWeight: 800,
+                                fontSize: { xs: '2.2rem', md: '3.4rem' },
+                                lineHeight: 1.1,
+                                mb: 2,
+                                background: 'linear-gradient(135deg, #7c5cff 0%, #00e0c6 100%)',
+                                WebkitBackgroundClip: 'text',
+                                backgroundClip: 'text',
+                                color: 'transparent',
+                            }}
+                        >
+                            Decentralized names<br />for humans and AIs
                         </Typography>
-                        <Typography variant="h6" sx={{ mb: 3, color: '#555', lineHeight: 1.6 }}>
-                            Register your free name on the <strong>{serviceName}</strong> identity network.
+                        <Typography variant="h6" sx={{
+                            color: '#555',
+                            fontWeight: 400,
+                            mb: 4,
+                            maxWidth: 620,
+                            mx: 'auto',
+                        }}>
+                            Claim your <strong>@name</strong> bound to your DID. Get a verifiable
+                            credential, a Lightning Address, and a public identity — no email,
+                            no passwords, no gatekeepers.
                         </Typography>
-                        <Typography variant="body1" sx={{ mb: 3, color: '#666' }}>
-                            🤖 AIs and humans welcome! 🧑‍💻
-                        </Typography>
-                        <Typography variant="body1" sx={{ color: '#777' }}>
-                            Create your self-sovereign digital identity and claim your name.
-                            <br />
-                            No email required. No passwords. Just your cryptographic identity.
-                        </Typography>
+
+                        <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center', flexWrap: 'wrap', mb: 4 }}>
+                            <Button
+                                variant="contained"
+                                onClick={login}
+                                size="large"
+                                sx={{
+                                    px: 4,
+                                    py: 1.5,
+                                    fontSize: '1rem',
+                                    fontWeight: 600,
+                                    textTransform: 'none',
+                                    borderRadius: 2,
+                                    background: 'linear-gradient(135deg, #7c5cff 0%, #00e0c6 100%)',
+                                    boxShadow: '0 4px 14px rgba(124, 92, 255, 0.35)',
+                                    '&:hover': {
+                                        background: 'linear-gradient(135deg, #6b4bff 0%, #00c9b1 100%)',
+                                    }
+                                }}
+                            >
+                                Claim your @name
+                            </Button>
+                            <Button
+                                component="a"
+                                href="/agents.html"
+                                variant="outlined"
+                                size="large"
+                                sx={{
+                                    px: 4,
+                                    py: 1.5,
+                                    fontSize: '1rem',
+                                    fontWeight: 600,
+                                    textTransform: 'none',
+                                    borderRadius: 2,
+                                    borderColor: '#7c5cff',
+                                    color: '#7c5cff',
+                                }}
+                            >
+                                🤖 I'm an AI agent
+                            </Button>
+                        </Box>
+
+                        {/* Stats strip */}
+                        <Box sx={{
+                            display: 'flex',
+                            justifyContent: 'center',
+                            gap: { xs: 3, md: 6 },
+                            flexWrap: 'wrap',
+                            color: '#666',
+                            fontSize: '0.95rem',
+                        }}>
+                            <Box>
+                                <Typography variant="h5" sx={{ fontWeight: 700, color: '#2c3e50' }}>
+                                    {directoryLoading ? '…' : directory.length.toLocaleString()}
+                                </Typography>
+                                <Typography variant="body2" sx={{ color: '#888' }}>Names claimed</Typography>
+                            </Box>
+                            <Box>
+                                <Typography variant="h5" sx={{ fontWeight: 700, color: '#2c3e50' }}>
+                                    W3C VC
+                                </Typography>
+                                <Typography variant="body2" sx={{ color: '#888' }}>Verifiable credentials</Typography>
+                            </Box>
+                            <Box>
+                                <Typography variant="h5" sx={{ fontWeight: 700, color: '#2c3e50' }}>
+                                    ⚡ LUD-16
+                                </Typography>
+                                <Typography variant="body2" sx={{ color: '#888' }}>Lightning addresses</Typography>
+                            </Box>
+                        </Box>
                     </Box>
 
-                    <Button 
-                        variant="contained" 
-                        color="primary" 
-                        onClick={login} 
-                        size="large"
-                        sx={{ 
-                            px: 5, 
-                            py: 1.5, 
-                            fontSize: '1.1rem',
-                            borderRadius: 2,
-                            textTransform: 'none',
-                            fontWeight: 600
-                        }}
-                    >
-                        Prove Your DID & Claim Your Name
-                    </Button>
+                    {/* Directory */}
+                    <Box sx={{ mt: 4, mb: 6 }}>
+                        <Box sx={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            mb: 2,
+                            flexWrap: 'wrap',
+                            gap: 2,
+                        }}>
+                            <Typography variant="h5" sx={{ fontWeight: 700, color: '#2c3e50' }}>
+                                Community
+                            </Typography>
+                            <TextField
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                placeholder="Search names…"
+                                size="small"
+                                sx={{
+                                    minWidth: 240,
+                                    '& .MuiOutlinedInput-root': {
+                                        borderRadius: 3,
+                                        backgroundColor: '#fff',
+                                    }
+                                }}
+                            />
+                        </Box>
 
-                    {/* AI Agent Instructions */}
-                    <Box sx={{ 
-                        mt: 4, 
-                        p: 3, 
-                        backgroundColor: '#1a1a2e', 
-                        borderRadius: 2,
-                        textAlign: 'left'
-                    }}>
-                        <Typography variant="h6" sx={{ mb: 2, color: '#00d4aa', fontFamily: 'monospace' }}>
-                            🤖 AI Agent Quick Start
-                        </Typography>
-                        <Typography variant="body2" sx={{ color: '#888', mb: 2 }}>
-                            First time? Create your DID identity:
-                        </Typography>
-                        <Typography variant="body2" component="pre" sx={{ color: '#ccc', mb: 2, fontFamily: 'monospace', fontSize: '0.8rem', whiteSpace: 'pre-wrap' }}>
-{`# Set up environment
-export ARCHON_GATEKEEPER_URL=https://archon.technology
-export ARCHON_PASSPHRASE="your-secret-passphrase"
-
-# Create wallet and identity
-npx @didcid/keymaster create-wallet
-npx @didcid/keymaster create-id myagent`}
-                        </Typography>
-                        <Typography variant="body2" sx={{ color: '#888', mb: 2, mt: 3 }}>
-                            Then claim your name (2 calls, no cookies):
-                        </Typography>
-                        <Typography variant="body2" component="pre" sx={{ color: '#ccc', mb: 2, fontFamily: 'monospace', fontSize: '0.8rem', whiteSpace: 'pre-wrap' }}>
-{`# 1. Get challenge
-CHALLENGE=$(curl -s ${publicUrl}/api/challenge | jq -r .challenge)
-
-# 2. Create response
-RESPONSE=$(npx @didcid/keymaster create-response $CHALLENGE)
-
-# 3. Claim your name (credential auto-issued)
-curl -X PUT ${publicUrl}/api/name \\
-  -H "Authorization: Bearer $RESPONSE" \\
-  -H "Content-Type: application/json" \\
-  -d '{"name": "myagent"}'`}
-                        </Typography>
-                        <Typography variant="body2" sx={{ color: '#888', mt: 2 }}>
-                            MCP Server: <a href="https://www.npmjs.com/package/@archon-protocol/mcp-server" target="_blank" rel="noopener noreferrer" style={{ color: '#00d4aa' }}>@archon-protocol/mcp-server</a>
-                            {' • '}
-                            Keymaster: <a href="https://www.npmjs.com/package/@didcid/keymaster" target="_blank" rel="noopener noreferrer" style={{ color: '#00d4aa' }}>@didcid/keymaster</a>
-                        </Typography>
+                        {directoryLoading ? (
+                            <Box sx={{ textAlign: 'center', py: 6 }}>
+                                <CircularProgress />
+                            </Box>
+                        ) : filteredDirectory.length === 0 ? (
+                            <Box sx={{ textAlign: 'center', py: 6, color: '#888' }}>
+                                {directory.length === 0
+                                    ? 'No names registered yet. Be the first!'
+                                    : 'No names match your search.'}
+                            </Box>
+                        ) : (
+                            <Box sx={{
+                                display: 'grid',
+                                gridTemplateColumns: {
+                                    xs: 'repeat(auto-fill, minmax(140px, 1fr))',
+                                    md: 'repeat(auto-fill, minmax(170px, 1fr))',
+                                },
+                                gap: 2,
+                            }}>
+                                {filteredDirectory.map((entry) => (
+                                    <Box
+                                        key={entry.did}
+                                        onClick={() => navigate(`/member/${entry.name}`)}
+                                        sx={{
+                                            backgroundColor: '#fff',
+                                            border: '1px solid #e9ecef',
+                                            borderRadius: 3,
+                                            p: 2,
+                                            cursor: 'pointer',
+                                            transition: 'all 0.2s ease',
+                                            textAlign: 'center',
+                                            '&:hover': {
+                                                borderColor: '#7c5cff',
+                                                transform: 'translateY(-2px)',
+                                                boxShadow: '0 8px 24px rgba(124, 92, 255, 0.12)',
+                                            },
+                                        }}
+                                    >
+                                        <Box
+                                            component="img"
+                                            src={`/api/name/${entry.name}/avatar`}
+                                            alt={entry.name}
+                                            onError={(e: any) => {
+                                                e.currentTarget.src = `https://robohash.org/${entry.name}.png?set=set4&size=120x120`;
+                                            }}
+                                            sx={{
+                                                width: 80,
+                                                height: 80,
+                                                borderRadius: '50%',
+                                                mb: 1.5,
+                                                backgroundColor: '#f0f0f0',
+                                                objectFit: 'cover',
+                                            }}
+                                        />
+                                        <Typography sx={{
+                                            fontWeight: 600,
+                                            fontSize: '0.95rem',
+                                            color: '#2c3e50',
+                                            overflow: 'hidden',
+                                            textOverflow: 'ellipsis',
+                                            whiteSpace: 'nowrap',
+                                        }}>
+                                            @{entry.name}
+                                        </Typography>
+                                        <Typography sx={{
+                                            fontSize: '0.75rem',
+                                            color: '#888',
+                                            fontFamily: 'monospace',
+                                            overflow: 'hidden',
+                                            textOverflow: 'ellipsis',
+                                            whiteSpace: 'nowrap',
+                                        }}>
+                                            {entry.did.substring(8, 20)}…
+                                        </Typography>
+                                    </Box>
+                                ))}
+                            </Box>
+                        )}
                     </Box>
 
-                    <Box sx={{ mt: 4, pt: 3, borderTop: '1px solid #e9ecef' }}>
-                        <Typography variant="body2" sx={{ color: '#888' }}>
-                            Powered by <a href="https://archon.technology" target="_blank" rel="noopener noreferrer" style={{ color: '#3498db' }}>Archon Protocol</a>
+                    {/* Footer */}
+                    <Box sx={{
+                        mt: 6,
+                        pt: 4,
+                        pb: 4,
+                        borderTop: '1px solid #e9ecef',
+                        textAlign: 'center',
+                    }}>
+                        <Typography variant="body2" sx={{ color: '#888', mb: 1 }}>
+                            Built on <a href="https://archetech.com" target="_blank" rel="noopener noreferrer" style={{ color: '#7c5cff', textDecoration: 'none' }}>Archon Protocol</a>
                             {' • '}
-                            <a href="/directory.json" target="_blank" rel="noopener noreferrer" style={{ color: '#3498db' }}>View Directory</a>
+                            <a href="/agents.html" style={{ color: '#7c5cff', textDecoration: 'none' }}>Agent guide</a>
                             {' • '}
-                            {publicUrl && <a href={`https://ipfs.io/ipns/${new URL(publicUrl).host}`} target="_blank" rel="noopener noreferrer" style={{ color: '#3498db' }}>IPNS Registry</a>}
+                            <a href="/llms.txt" style={{ color: '#7c5cff', textDecoration: 'none' }}>llms.txt</a>
+                            {' • '}
+                            <a href="https://github.com/archetech/archon-social" target="_blank" rel="noopener noreferrer" style={{ color: '#7c5cff', textDecoration: 'none' }}>GitHub</a>
+                            {' • '}
+                            <a href="/directory.json" target="_blank" rel="noopener noreferrer" style={{ color: '#7c5cff', textDecoration: 'none' }}>Directory JSON</a>
                         </Typography>
-                        <Typography variant="caption" sx={{ color: '#aaa', display: 'block', mt: 1 }}>
-                            🤖 Robots lovingly delivered by <a href="https://robohash.org" target="_blank" rel="noopener noreferrer" style={{ color: '#aaa' }}>Robohash.org</a>
+                        <Typography variant="caption" sx={{ color: '#aaa' }}>
+                            Reference app · {agentDomain} · MIT License
                         </Typography>
                     </Box>
                 </Box>
@@ -295,10 +505,7 @@ curl -X PUT ${publicUrl}/api/name \\
 
 function ViewLogin() {
     const [challengeDID, setChallengeDID] = useState<string>('');
-    const [responseDID, setResponseDID] = useState<string>('');
-    const [loggingIn, setLoggingIn] = useState<boolean>(false);
     const [challengeURL, setChallengeURL] = useState<string | null>(null);
-    const [extensionURL, setExtensionURL] = useState<string>('');
     const [challengeCopied, setChallengeCopied] = useState<boolean>(false);
 
     const navigate = useNavigate();
@@ -324,7 +531,6 @@ function ViewLogin() {
                 const response = await api.get(`/challenge`);
                 const { challenge, challengeURL } = response.data;
                 setChallengeDID(challenge);
-                setExtensionURL(`archon://auth?challenge=${challenge}`);
                 setChallengeURL(encodeURI(challengeURL));
             }
             catch (error: any) {
@@ -339,27 +545,7 @@ function ViewLogin() {
                 clearInterval(intervalIdRef.current);
             }
         }
-    }, []);
-
-    async function login() {
-        setLoggingIn(true);
-
-        try {
-            const getAuth = await api.post(`/login`, { challenge: challengeDID, response: responseDID });
-
-            if (getAuth.data.authenticated) {
-                navigate('/');
-            }
-            else {
-                alert('login failed');
-            }
-        }
-        catch (error: any) {
-            window.alert(error);
-        }
-
-        setLoggingIn(false);
-    }
+    }, [navigate]);
 
     async function copyToClipboard(text: string) {
         try {
@@ -371,61 +557,70 @@ function ViewLogin() {
         }
     }
 
+    function cancelLogin() {
+        navigate('/');
+    }
+
     return (
-        <div className="App">
-            <Header title="Login" />
-            <Box sx={{ maxWidth: 800, mx: 'auto' }}>
-            <Table sx={{ width: '100%' }}>
-                <TableBody>
-                    <TableRow>
-                        <TableCell>Challenge:</TableCell>
-                        <TableCell>
-                            {challengeURL &&
-                                <a href={challengeURL} target="_blank" rel="noopener noreferrer">
-                                    <QRCodeSVG value={challengeURL} />
-                                </a>
-                            }
-                            <Typography
-                                component="a"
-                                href={extensionURL}
-                                style={{ fontFamily: 'Courier' }}
-                            >
-                                {challengeDID}
-                            </Typography>
-                        </TableCell>
-                        <TableCell>
-                            <Button variant="outlined" onClick={() => copyToClipboard(challengeDID)} disabled={challengeCopied}>
-                                Copy
-                            </Button>
-                        </TableCell>
-                    </TableRow>
-                    <TableRow>
-                        <TableCell>Response:</TableCell>
-                        <TableCell>
-                            <TextField
-                                label="Response DID"
-                                style={{ width: '600px', fontFamily: 'Courier' }}
-                                value={responseDID}
-                                onChange={(e) => setResponseDID(e.target.value)}
-                                fullWidth
-                                margin="normal"
-                                slotProps={{
-                                    htmlInput: {
-                                        maxLength: 80,
-                                    },
-                                }}
-                            />
-                        </TableCell>
-                        <TableCell>
-                            <Button variant="outlined" onClick={login} disabled={!responseDID || loggingIn}>
-                                Login
-                            </Button>
-                        </TableCell>
-                    </TableRow>
-                </TableBody>
-            </Table>
-            </Box>
-        </div>
+        <Box
+            sx={{
+                minHeight: '100vh',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: 'radial-gradient(circle at top, #f5f8ff 0%, #eef2f8 45%, #e8edf5 100%)',
+                p: 2,
+            }}
+        >
+            <Dialog
+                open
+                onClose={cancelLogin}
+                maxWidth="xs"
+                fullWidth
+                PaperProps={{
+                    sx: {
+                        borderRadius: 3,
+                        px: 1,
+                        py: 1.5,
+                    },
+                }}
+            >
+                <DialogContent sx={{ textAlign: 'center', pt: 2 }}>
+                    <Typography variant="h4" component="h1" sx={{ fontWeight: 700, mb: 1.5 }}>
+                        Login
+                    </Typography>
+                    <Typography variant="body2" sx={{ color: '#666', mb: 3 }}>
+                        Scan with Archon Wallet to continue.
+                    </Typography>
+                    {challengeURL && (
+                        <Box
+                            component="a"
+                            href={challengeURL}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            sx={{
+                                display: 'inline-flex',
+                                p: 2,
+                                borderRadius: 2,
+                                backgroundColor: '#fff',
+                                border: '1px solid #e5e7eb',
+                                boxShadow: '0 12px 30px rgba(15, 23, 42, 0.08)',
+                            }}
+                        >
+                            <QRCodeSVG value={challengeURL} />
+                        </Box>
+                    )}
+                </DialogContent>
+                <DialogActions sx={{ justifyContent: 'center', gap: 1, pb: 3 }}>
+                    <Button variant="outlined" onClick={() => copyToClipboard(challengeDID)} disabled={challengeCopied}>
+                        {challengeCopied ? 'Copied' : 'Copy'}
+                    </Button>
+                    <Button variant="text" color="inherit" onClick={cancelLogin}>
+                        Cancel
+                    </Button>
+                </DialogActions>
+            </Dialog>
+        </Box>
     )
 }
 
@@ -478,14 +673,14 @@ function ViewMembers() {
                 // Fetch directory
                 const dirResponse = await api.get(`/registry`);
                 const data = dirResponse.data;
-                
+
                 setLastUpdated(data.updated || '');
-                
+
                 // Convert names object to array for easier rendering
                 const entries: DirectoryEntry[] = Object.entries(data.names || {}).map(
                     ([name, did]) => ({ name, did: did as string })
                 );
-                
+
                 // Sort alphabetically by name
                 entries.sort((a, b) => a.name.localeCompare(b.name));
                 setDirectory(entries);
@@ -503,18 +698,13 @@ function ViewMembers() {
     }, [navigate]);
 
     if (loading) {
-        return (
-            <div className="App">
-                <Header title="Member Directory" />
-                <p>Loading directory...</p>
-            </div>
-        );
+        return <LoadingShell title="Member Directory" />;
     }
 
     return (
         <div className="App">
             <Header title="Member Directory" />
-            
+
             <Box sx={{ maxWidth: 800, mx: 'auto' }}>
                 <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <Typography variant="body2" sx={{ color: '#666' }}>
@@ -530,26 +720,14 @@ function ViewMembers() {
                 <Table sx={{ backgroundColor: '#fff', borderRadius: 2, overflow: 'hidden' }}>
                     <TableBody>
                         {directory.map((entry) => (
-                            <TableRow 
+                            <TableRow
                                 key={entry.did}
-                                sx={{ 
+                                sx={{
                                     '&:hover': { backgroundColor: '#f8f9fa' },
                                     cursor: 'pointer'
                                 }}
                                 onClick={() => navigate(`/profile/${entry.did}`)}
                             >
-                                <TableCell sx={{ width: 60, padding: '8px 16px' }}>
-                                    <img 
-                                        src={`/api/name/${entry.name}/avatar`}
-                                        alt={`${entry.name} avatar`}
-                                        style={{ 
-                                            width: 40, 
-                                            height: 40, 
-                                            borderRadius: 8,
-                                            border: '1px solid #e9ecef'
-                                        }}
-                                    />
-                                </TableCell>
                                 <TableCell sx={{ fontWeight: 600, fontSize: '1.1rem', color: '#2c3e50' }}>
                                     {entry.name}@{serviceDomain}
                                 </TableCell>
@@ -557,8 +735,8 @@ function ViewMembers() {
                                     {entry.did.substring(0, 20)}...{entry.did.substring(entry.did.length - 8)}
                                 </TableCell>
                                 <TableCell align="right">
-                                    <Button 
-                                        component={Link} 
+                                    <Button
+                                        component={Link}
                                         to={`/member/${entry.name}`}
                                         size="small"
                                         variant="outlined"
@@ -661,41 +839,16 @@ function ViewOwner() {
 function ViewProfile() {
     const { did } = useParams();
     const navigate = useNavigate();
-    const [auth, setAuth] = useState<AuthState | null>(null);
     const [profile, setProfile] = useState<any>(null);
     const [currentName, setCurrentName] = useState<string>("");
     const [newName, setNewName] = useState<string>("");
     const [nameError, setNameError] = useState<string>("");
     const [nameAvailable, setNameAvailable] = useState<boolean | null>(null);
-    const [avatarUrl, setAvatarUrl] = useState<string>("");
-    const [newAvatarUrl, setNewAvatarUrl] = useState<string>("");
-    const [avatarError, setAvatarError] = useState<string>("");
-    const [effectiveAvatarUrl, setEffectiveAvatarUrl] = useState<string>("");
-    const [isCustomAvatar, setIsCustomAvatar] = useState<boolean>(false);
-    const [robohashSet, setRobohashSet] = useState<string>("set4");
-    const [robohashBg, setRobohashBg] = useState<string>("");
-
-    const ROBOHASH_SET_LABELS: Record<string, string> = {
-        'set1': '🤖 Robots',
-        'set2': '👾 Monsters',
-        'set3': '🦾 Robot Heads',
-        'set4': '🐱 Kittens',
-        'set5': '👤 Humans'
-    };
-
-    const ROBOHASH_BG_LABELS: Record<string, string> = {
-        '': 'None',
-        'bg1': 'Scene 1',
-        'bg2': 'Scene 2'
-    };
 
     useEffect(() => {
         const init = async () => {
             try {
-                const getAuth = await api.get(`/check-auth`);
-                const auth: AuthState = getAuth.data;
-
-                setAuth(auth);
+                await api.get(`/check-auth`);
 
                 const getProfile = await api.get(`/profile/${did}`);
                 const profile = getProfile.data;
@@ -705,21 +858,6 @@ function ViewProfile() {
                 if (profile.name) {
                     setCurrentName(profile.name);
                     setNewName(profile.name);
-                }
-
-                // Fetch avatar info
-                try {
-                    const avatarResponse = await api.get(`/profile/${did}/avatar`);
-                    setAvatarUrl(avatarResponse.data.avatarUrl || "");
-                    setNewAvatarUrl(avatarResponse.data.avatarUrl || "");
-                    setEffectiveAvatarUrl(avatarResponse.data.effectiveUrl);
-                    setIsCustomAvatar(avatarResponse.data.isCustom);
-                    setRobohashSet(avatarResponse.data.robohashSet || "set4");
-                    setRobohashBg(avatarResponse.data.robohashBg || "");
-                } catch {
-                    // Avatar endpoint might not exist yet, use default (prefer name over DID)
-                    const identifier = profile?.name || did || '';
-                    setEffectiveAvatarUrl(`https://robohash.org/${encodeURIComponent(identifier)}?set=set4`);
                 }
 
             }
@@ -763,57 +901,6 @@ function ViewProfile() {
         }
     }
 
-    async function saveAvatar() {
-        setAvatarError('');
-        try {
-            const response = await api.put(`/profile/${profile.did}/avatar`, { avatarUrl: newAvatarUrl.trim() || null });
-            setAvatarUrl(response.data.avatarUrl || "");
-            setEffectiveAvatarUrl(response.data.effectiveUrl);
-            setIsCustomAvatar(!!response.data.avatarUrl);
-            setRobohashSet(response.data.robohashSet || "set4");
-            setRobohashBg(response.data.robohashBg || "");
-        }
-        catch (error: any) {
-            const message = error.response?.data?.message || error.response?.data?.error || 'Failed to save avatar';
-            setAvatarError(message);
-        }
-    }
-
-    async function updateRobohashSettings(newSet?: string, newBg?: string) {
-        setAvatarError('');
-        try {
-            const payload: any = {};
-            if (newSet !== undefined) payload.robohashSet = newSet;
-            if (newBg !== undefined) payload.robohashBg = newBg;
-            
-            const response = await api.put(`/profile/${profile.did}/avatar`, payload);
-            setEffectiveAvatarUrl(response.data.effectiveUrl);
-            setRobohashSet(response.data.robohashSet || "set4");
-            setRobohashBg(response.data.robohashBg || "");
-        }
-        catch (error: any) {
-            const message = error.response?.data?.message || error.response?.data?.error || 'Failed to update settings';
-            setAvatarError(message);
-        }
-    }
-
-    async function resetAvatar() {
-        setAvatarError('');
-        try {
-            const response = await api.delete(`/profile/${profile.did}/avatar`);
-            setAvatarUrl("");
-            setNewAvatarUrl("");
-            setEffectiveAvatarUrl(response.data.effectiveUrl);
-            setIsCustomAvatar(false);
-            setRobohashSet(response.data.robohashSet || "set4");
-            setRobohashBg(response.data.robohashBg || "");
-        }
-        catch (error: any) {
-            const message = error.response?.data?.message || error.response?.data?.error || 'Failed to reset avatar';
-            setAvatarError(message);
-        }
-    }
-
     async function checkName() {
         setNameError('');
         setNameAvailable(null);
@@ -853,189 +940,91 @@ function ViewProfile() {
         <div className="App">
             <Header title="Profile" />
             <Box sx={{ maxWidth: 800, mx: 'auto' }}>
-            <Table sx={{ width: '100%' }}>
-                <TableBody>
-                    <TableRow>
-                        <TableCell>Avatar:</TableCell>
-                        <TableCell>
-                            <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 3 }}>
-                                <Box sx={{ textAlign: 'center', minWidth: 120 }}>
-                                    <img 
-                                        src={effectiveAvatarUrl} 
-                                        alt="Avatar" 
-                                        style={{ 
-                                            width: 100, 
-                                            height: 100, 
-                                            borderRadius: 8,
-                                            border: '2px solid #e9ecef'
-                                        }} 
-                                    />
-                                    {!isCustomAvatar && (
-                                        <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: '#888' }}>
-                                            <a href="https://robohash.org" target="_blank" rel="noopener noreferrer" style={{ color: '#888' }}>
-                                                Robohash.org
-                                            </a>
-                                        </Typography>
-                                    )}
-                                </Box>
-                                {profile.isUser && (
-                                    <Box sx={{ flex: 1 }}>
-                                        {!isCustomAvatar && (
-                                            <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
-                                                <FormControl size="small" sx={{ minWidth: 140 }}>
-                                                    <InputLabel>Style</InputLabel>
-                                                    <Select
-                                                        value={robohashSet}
-                                                        label="Style"
-                                                        onChange={(e) => {
-                                                            const newSet = e.target.value;
-                                                            setRobohashSet(newSet);
-                                                            updateRobohashSettings(newSet, undefined);
-                                                        }}
-                                                    >
-                                                        {Object.entries(ROBOHASH_SET_LABELS).map(([value, label]) => (
-                                                            <MenuItem key={value} value={value}>{label}</MenuItem>
-                                                        ))}
-                                                    </Select>
-                                                </FormControl>
-                                                <FormControl size="small" sx={{ minWidth: 120 }}>
-                                                    <InputLabel>Background</InputLabel>
-                                                    <Select
-                                                        value={robohashBg}
-                                                        label="Background"
-                                                        onChange={(e) => {
-                                                            const newBg = e.target.value;
-                                                            setRobohashBg(newBg);
-                                                            updateRobohashSettings(undefined, newBg);
-                                                        }}
-                                                    >
-                                                        {Object.entries(ROBOHASH_BG_LABELS).map(([value, label]) => (
-                                                            <MenuItem key={value} value={value}>{label}</MenuItem>
-                                                        ))}
-                                                    </Select>
-                                                </FormControl>
-                                            </Box>
-                                        )}
-                                        <TextField
-                                            label="Custom Avatar URL"
-                                            placeholder="https://example.com/avatar.png"
-                                            value={newAvatarUrl}
-                                            onChange={(e) => { setNewAvatarUrl(e.target.value); setAvatarError(''); }}
-                                            fullWidth
-                                            size="small"
-                                            sx={{ mb: 1 }}
-                                        />
-                                        <Box sx={{ display: 'flex', gap: 1 }}>
+                <Table sx={{ width: '100%' }}>
+                    <TableBody>
+                        <TableRow>
+                            <TableCell>DID:</TableCell>
+                            <TableCell>
+                                <Typography style={{ fontFamily: 'Courier' }}>
+                                    {profile.did}
+                                </Typography>
+                            </TableCell>
+                        </TableRow>
+                        <TableRow>
+                            <TableCell>First login:</TableCell>
+                            <TableCell>{formatDate(profile.firstLogin)}</TableCell>
+                        </TableRow>
+                        <TableRow>
+                            <TableCell>Last login:</TableCell>
+                            <TableCell>{formatDate(profile.lastLogin)}</TableCell>
+                        </TableRow>
+                        <TableRow>
+                            <TableCell>Login count:</TableCell>
+                            <TableCell>{profile.logins}</TableCell>
+                        </TableRow>
+                        <TableRow>
+                            <TableCell>Name:</TableCell>
+                            <TableCell>
+                                {profile.isUser ? (
+                                    <>
+                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                                            <TextField
+                                                label=""
+                                                value={newName}
+                                                onChange={(e) => { setNewName(e.target.value); setNameError(''); setNameAvailable(null); }}
+                                                slotProps={{
+                                                    htmlInput: {
+                                                        maxLength: 32,
+                                                    },
+                                                }}
+                                                sx={{ width: 300 }}
+                                                margin="normal"
+                                                fullWidth
+                                            />
                                             <Button
                                                 variant="outlined"
-                                                size="small"
-                                                onClick={saveAvatar}
-                                                disabled={newAvatarUrl === avatarUrl}
+                                                onClick={checkName}
+                                                disabled={!newName.trim() || newName === currentName}
                                             >
-                                                {newAvatarUrl ? 'Use Custom URL' : 'Save'}
+                                            Check
                                             </Button>
-                                            {isCustomAvatar && (
+                                            <Button
+                                                variant="outlined"
+                                                color="primary"
+                                                onClick={saveName}
+                                                disabled={newName === currentName}
+                                            >
+                                            Save
+                                            </Button>
+                                            {currentName && (
                                                 <Button
                                                     variant="outlined"
-                                                    size="small"
-                                                    color="secondary"
-                                                    onClick={resetAvatar}
+                                                    color="error"
+                                                    onClick={deleteName}
                                                 >
-                                                    Use Robohash
+                                                Delete
                                                 </Button>
                                             )}
                                         </Box>
-                                        {avatarError && (
-                                            <Alert severity="error" sx={{ mt: 1 }}>{avatarError}</Alert>
+                                        {nameError && (
+                                            <Alert severity="error" sx={{ mt: 1 }}>{nameError}</Alert>
                                         )}
-                                    </Box>
+                                        {nameAvailable && (
+                                            <Alert severity="success" sx={{ mt: 1 }}>Name is available!</Alert>
+                                        )}
+                                    </>
+                                ) : (
+                                    currentName
                                 )}
-                            </Box>
-                        </TableCell>
-                    </TableRow>
-                    <TableRow>
-                        <TableCell>DID:</TableCell>
-                        <TableCell>
-                            <Typography style={{ fontFamily: 'Courier' }}>
-                                {profile.did}
-                            </Typography>
-                        </TableCell>
-                    </TableRow>
-                    <TableRow>
-                        <TableCell>First login:</TableCell>
-                        <TableCell>{formatDate(profile.firstLogin)}</TableCell>
-                    </TableRow>
-                    <TableRow>
-                        <TableCell>Last login:</TableCell>
-                        <TableCell>{formatDate(profile.lastLogin)}</TableCell>
-                    </TableRow>
-                    <TableRow>
-                        <TableCell>Login count:</TableCell>
-                        <TableCell>{profile.logins}</TableCell>
-                    </TableRow>
-                    <TableRow>
-                        <TableCell>Name:</TableCell>
-                        <TableCell>
-                            {profile.isUser ? (
-                                <>
-                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-                                        <TextField
-                                            label=""
-                                            value={newName}
-                                            onChange={(e) => { setNewName(e.target.value); setNameError(''); setNameAvailable(null); }}
-                                            slotProps={{
-                                                htmlInput: {
-                                                    maxLength: 20,
-                                                },
-                                            }}
-                                            sx={{ width: 300 }}
-                                            margin="normal"
-                                            fullWidth
-                                        />
-                                        <Button
-                                            variant="outlined"
-                                            onClick={checkName}
-                                            disabled={!newName.trim() || newName === currentName}
-                                        >
-                                            Check
-                                        </Button>
-                                        <Button
-                                            variant="outlined"
-                                            color="primary"
-                                            onClick={saveName}
-                                            disabled={newName === currentName}
-                                        >
-                                            Save
-                                        </Button>
-                                        {currentName && (
-                                            <Button
-                                                variant="outlined"
-                                                color="error"
-                                                onClick={deleteName}
-                                            >
-                                                Delete
-                                            </Button>
-                                        )}
-                                    </Box>
-                                    {nameError && (
-                                        <Alert severity="error" sx={{ mt: 1 }}>{nameError}</Alert>
-                                    )}
-                                    {nameAvailable && (
-                                        <Alert severity="success" sx={{ mt: 1 }}>Name is available!</Alert>
-                                    )}
-                                </>
-                            ) : (
-                                currentName
-                            )}
-                        </TableCell>
-                    </TableRow>
-                </TableBody>
-            </Table>
-            <Box sx={{ mt: 3 }}>
-                <Button component={Link} to="/" variant="outlined">
+                            </TableCell>
+                        </TableRow>
+                    </TableBody>
+                </Table>
+                <Box sx={{ mt: 3 }}>
+                    <Button component={Link} to="/" variant="outlined">
                     ← Back to Home
-                </Button>
-            </Box>
+                    </Button>
+                </Box>
             </Box>
         </div>
     )
@@ -1045,50 +1034,64 @@ function ViewCredential() {
     const [credentialData, setCredentialData] = useState<any>(null);
     const [loading, setLoading] = useState<boolean>(true);
     const [error, setError] = useState<string>('');
+    const [walletUrl, setWalletUrl] = useState<string>('');
+    const [credentialDidCopied, setCredentialDidCopied] = useState<boolean>(false);
     const navigate = useNavigate();
 
-    const fetchCredential = async () => {
-        try {
-            const response = await api.get('/credential');
-            setCredentialData(response.data);
-        }
-        catch (err: any) {
-            if (err.response?.status === 401) {
-                navigate('/login');
-            } else {
-                setError(err.response?.data?.error || 'Failed to fetch credential');
-            }
-        }
-        finally {
-            setLoading(false);
-        }
-    };
-
     useEffect(() => {
+        const fetchCredential = async () => {
+            try {
+                const configResponse = await api.get('/config');
+                setWalletUrl(configResponse.data.walletUrl);
+
+                const response = await api.get('/credential');
+                setCredentialData(response.data);
+            }
+            catch (err: any) {
+                if (err.response?.status === 401) {
+                    navigate('/login');
+                } else {
+                    setError(err.response?.data?.error || 'Failed to fetch credential');
+                }
+            }
+            finally {
+                setLoading(false);
+            }
+        };
+
         fetchCredential();
-    }, []);
+    }, [navigate]);
+
+    const credentialWalletUrl = credentialData?.credentialDid && walletUrl
+        ? buildWalletUrl(walletUrl, { credential: credentialData.credentialDid })
+        : null;
+
+    async function copyCredentialDid(text: string) {
+        try {
+            await navigator.clipboard.writeText(text);
+            setCredentialDidCopied(true);
+        }
+        catch (copyError: any) {
+            window.alert('Failed to copy text: ' + copyError);
+        }
+    }
 
     if (loading) {
-        return (
-            <div className="App">
-                <Header title="My Credential" />
-                <p>Loading...</p>
-            </div>
-        );
+        return <LoadingShell title="My Credential" />;
     }
 
     return (
         <div className="App">
             <Header title="My Credential" />
-            
+
             <Box sx={{ maxWidth: 800, mx: 'auto' }}>
                 {error && (
-                    <Box sx={{ 
-                        backgroundColor: '#fee', 
-                        border: '1px solid #fcc', 
-                        borderRadius: 2, 
-                        p: 2, 
-                        mb: 3 
+                    <Box sx={{
+                        backgroundColor: '#fee',
+                        border: '1px solid #fcc',
+                        borderRadius: 2,
+                        p: 2,
+                        mb: 3
                     }}>
                         <Typography color="error">{error}</Typography>
                     </Box>
@@ -1114,10 +1117,10 @@ function ViewCredential() {
                     </Box>
                 ) : (
                     <Box>
-                        <Box sx={{ 
-                            backgroundColor: '#e8f5e9', 
-                            borderRadius: 2, 
-                            p: 3, 
+                        <Box sx={{
+                            backgroundColor: '#e8f5e9',
+                            borderRadius: 2,
+                            p: 3,
                             mb: 3,
                             border: '1px solid #c8e6c9',
                             textAlign: 'center'
@@ -1129,42 +1132,58 @@ function ViewCredential() {
                                 {credentialData.credential?.credentialSubject?.name || 'Unknown'}
                             </Typography>
                             <Typography variant="body2" sx={{ color: '#666', mt: 1 }}>
-                                Issued: {credentialData.credentialIssuedAt ? 
-                                    format(new Date(credentialData.credentialIssuedAt), 'MMM d, yyyy h:mm a') : 
+                                Issued: {credentialData.credentialIssuedAt ?
+                                    format(new Date(credentialData.credentialIssuedAt), 'MMM d, yyyy h:mm a') :
                                     'Unknown'}
                             </Typography>
                         </Box>
 
                         <Typography variant="h6" sx={{ mb: 2 }}>Credential DID</Typography>
-                        <Typography 
-                            variant="body2" 
-                            sx={{ 
-                                fontFamily: 'monospace', 
-                                backgroundColor: '#f5f5f5', 
-                                p: 2, 
+                        <Box
+                            sx={{
+                                backgroundColor: '#f5f5f5',
+                                p: 2,
                                 borderRadius: 1,
-                                wordBreak: 'break-all',
-                                mb: 3
+                                mb: 3,
+                                textAlign: 'center',
                             }}
                         >
-                            <a href={`archon://accept?credential=${credentialData.credentialDid}`} style={{ color: 'inherit' }}>
-                                <QRCodeSVG value={`archon://accept?credential=${credentialData.credentialDid}`} />
-                                <br />
-                                {credentialData.credentialDid}
+                            <a href={credentialWalletUrl || '#'} target="_blank" rel="noopener noreferrer" style={{ color: 'inherit', textDecoration: 'none' }}>
+                                <QRCodeSVG value={credentialWalletUrl || credentialData.credentialDid} />
                             </a>
-                        </Typography>
+                            <Typography
+                                variant="body2"
+                                sx={{
+                                    fontFamily: 'monospace',
+                                    wordBreak: 'break-all',
+                                    mt: 2,
+                                    color: '#666',
+                                }}
+                            >
+                                {credentialData.credentialDid}
+                            </Typography>
+                            <Button
+                                variant="outlined"
+                                size="small"
+                                sx={{ mt: 1.5, textTransform: 'none' }}
+                                onClick={() => copyCredentialDid(credentialData.credentialDid)}
+                                disabled={credentialDidCopied}
+                            >
+                                {credentialDidCopied ? 'Copied' : 'Copy DID'}
+                            </Button>
+                        </Box>
 
                         <Typography variant="h6" sx={{ mb: 2 }}>Verifiable Credential</Typography>
-                        <Box sx={{ 
-                            backgroundColor: '#1e1e1e', 
-                            borderRadius: 2, 
+                        <Box sx={{
+                            backgroundColor: '#1e1e1e',
+                            borderRadius: 2,
                             p: 2,
                             overflow: 'auto',
                             maxHeight: 400
                         }}>
-                            <pre style={{ 
-                                color: '#d4d4d4', 
-                                margin: 0, 
+                            <pre style={{
+                                color: '#d4d4d4',
+                                margin: 0,
                                 fontSize: '0.8rem',
                                 fontFamily: 'Monaco, Consolas, monospace'
                             }}>
@@ -1190,12 +1209,15 @@ function ViewMember() {
     const [loading, setLoading] = useState<boolean>(true);
     const [error, setError] = useState<string>('');
     const [serviceDomain, setServiceDomain] = useState<string>('');
+    const [walletUrl, setWalletUrl] = useState<string>('');
+    const [didCopied, setDidCopied] = useState<boolean>(false);
 
     useEffect(() => {
         const fetchMember = async () => {
             try {
                 const configResponse = await api.get('/config');
                 setServiceDomain(configResponse.data.serviceDomain);
+                setWalletUrl(configResponse.data.walletUrl);
 
                 const response = await api.get(`/member/${name}`);
                 setMemberData(response.data);
@@ -1213,13 +1235,18 @@ function ViewMember() {
         }
     }, [name]);
 
+    async function copyDid(text: string) {
+        try {
+            await navigator.clipboard.writeText(text);
+            setDidCopied(true);
+        }
+        catch (copyError: any) {
+            window.alert('Failed to copy text: ' + copyError);
+        }
+    }
+
     if (loading) {
-        return (
-            <div className="App">
-                <Header title={`${name}@${serviceDomain}`} />
-                <p>Loading...</p>
-            </div>
-        );
+        return <LoadingShell title={`${name}@${serviceDomain}`} />;
     }
 
     if (error) {
@@ -1238,10 +1265,17 @@ function ViewMember() {
         );
     }
 
+    const aliasWalletUrl = memberData?.didDocument?.id && walletUrl
+        ? buildWalletUrl(walletUrl, {
+            alias: `${name}@${serviceDomain}`,
+            did: memberData.didDocument.id,
+        })
+        : null;
+
     return (
         <div className="App">
             <Header title={`${name}@${serviceDomain}`} />
-            
+
             <Box sx={{ maxWidth: 800, mx: 'auto' }}>
                 <Box sx={{
                     backgroundColor: '#f8f9fa',
@@ -1251,27 +1285,38 @@ function ViewMember() {
                     border: '1px solid #e9ecef',
                     textAlign: 'center'
                 }}>
-                    {memberData?.didDocument?.id && (
-                        <a href={`archon://accept?alias=${name}@${serviceDomain}&did=${memberData.didDocument.id}`} style={{ color: 'inherit', textDecoration: 'none' }}>
-                            <QRCodeSVG value={`archon://accept?alias=${name}@${serviceDomain}&did=${memberData.didDocument.id}`} />
+                    {memberData?.didDocument?.id && aliasWalletUrl && (
+                        <Box>
+                            <a href={aliasWalletUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'inherit', textDecoration: 'none' }}>
+                                <QRCodeSVG value={aliasWalletUrl} />
+                            </a>
                             <Typography variant="body1" sx={{ fontFamily: 'monospace', color: '#666', wordBreak: 'break-all', mt: 2 }}>
                                 {memberData.didDocument.id}
                             </Typography>
-                        </a>
+                            <Button
+                                variant="outlined"
+                                size="small"
+                                sx={{ mt: 1.5, textTransform: 'none' }}
+                                onClick={() => copyDid(memberData.didDocument.id)}
+                                disabled={didCopied}
+                            >
+                                {didCopied ? 'Copied' : 'Copy DID'}
+                            </Button>
+                        </Box>
                     )}
                 </Box>
 
                 <Typography variant="h6" sx={{ mb: 2 }}>DID Document</Typography>
-                
-                <Box sx={{ 
-                    backgroundColor: '#1e1e1e', 
-                    borderRadius: 2, 
+
+                <Box sx={{
+                    backgroundColor: '#1e1e1e',
+                    borderRadius: 2,
                     p: 2,
                     overflow: 'auto'
                 }}>
-                    <pre style={{ 
-                        color: '#d4d4d4', 
-                        margin: 0, 
+                    <pre style={{
+                        color: '#d4d4d4',
+                        margin: 0,
                         fontSize: '0.85rem',
                         fontFamily: 'Monaco, Consolas, monospace'
                     }}>
@@ -1283,8 +1328,8 @@ function ViewMember() {
                     <Button component={Link} to="/members" variant="outlined">
                         ← Back to Directory
                     </Button>
-                    <Button 
-                        component="a" 
+                    <Button
+                        component="a"
                         href={`https://explorer.archon.technology/search?did=${memberData?.id}`}
                         target="_blank"
                         variant="outlined"

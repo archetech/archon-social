@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AI Agent Guide · archon.social</title>
+<meta name="description" content="How AI agents can register a @name on archon.social — a decentralized naming service built on Archon Protocol." />
+<link rel="icon" type="image/png" href="/favicon.ico" />
+<style>
+  :root {
+    --bg: #0b0d12;
+    --panel: #141820;
+    --text: #e6e9ef;
+    --muted: #8b94a7;
+    --accent: #7c5cff;
+    --accent-2: #00e0c6;
+    --border: #232836;
+    --code-bg: #0a0c11;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    line-height: 1.6;
+    font-size: 16px;
+  }
+  main {
+    max-width: 780px;
+    margin: 0 auto;
+    padding: 3rem 1.5rem 6rem;
+  }
+  header {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 2rem;
+    margin-bottom: 2rem;
+  }
+  .kicker {
+    color: var(--accent-2);
+    font-size: 0.85rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin: 0 0 0.5rem;
+  }
+  h1 {
+    font-size: 2.4rem;
+    line-height: 1.15;
+    margin: 0 0 1rem;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  h2 {
+    font-size: 1.4rem;
+    margin-top: 2.5rem;
+    margin-bottom: 0.75rem;
+    color: var(--text);
+  }
+  h3 {
+    font-size: 1.1rem;
+    margin-top: 1.5rem;
+    color: var(--text);
+  }
+  p, li { color: var(--text); }
+  .lead { color: var(--muted); font-size: 1.1rem; }
+  a { color: var(--accent-2); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code {
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    background: var(--code-bg);
+    padding: 0.15em 0.4em;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    font-size: 0.9em;
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    overflow-x: auto;
+    font-size: 0.88em;
+    line-height: 1.5;
+  }
+  pre code {
+    background: transparent;
+    border: none;
+    padding: 0;
+  }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.25rem 1.5rem;
+    margin: 1.5rem 0;
+  }
+  .panel-accent {
+    border-left: 3px solid var(--accent);
+  }
+  .steps {
+    counter-reset: step;
+    list-style: none;
+    padding: 0;
+  }
+  .steps li {
+    counter-increment: step;
+    position: relative;
+    padding: 1rem 0 1rem 3rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .steps li:last-child { border-bottom: none; }
+  .steps li::before {
+    content: counter(step);
+    position: absolute;
+    left: 0;
+    top: 1rem;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    color: #0b0d12;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.9rem;
+  }
+  footer {
+    margin-top: 4rem;
+    padding-top: 2rem;
+    border-top: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 0.9rem;
+    text-align: center;
+  }
+  footer a { margin: 0 0.5rem; }
+  .badge {
+    display: inline-block;
+    padding: 0.25em 0.65em;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    margin-right: 0.4rem;
+  }
+  table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+  th, td { text-align: left; padding: 0.6rem 0.8rem; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; font-size: 0.85rem; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <p class="kicker">🤖 For AI Agents</p>
+    <h1>Claim your name on archon.social</h1>
+    <p class="lead">
+      archon.social is a decentralized naming service for humans <em>and</em> AI agents.
+      No email verification. No CAPTCHAs. No gatekeepers. Prove you control a DID,
+      claim your <code>@name</code>, and become a first-class member of the decentralized web.
+    </p>
+    <p>
+      <span class="badge">did:cid</span>
+      <span class="badge">W3C VC</span>
+      <span class="badge">LUD-16</span>
+      <span class="badge">WebFinger</span>
+      <span class="badge">OpenID Connect</span>
+    </p>
+  </header>
+
+  <div class="panel panel-accent">
+    <strong>TL;DR</strong> — three curl commands and you're registered.
+    If you want the short version, read <a href="/llms.txt">/llms.txt</a>.
+    If you want the full spec, read <a href="/llms-full.txt">/llms-full.txt</a>.
+  </div>
+
+  <h2>Prerequisites</h2>
+  <ul>
+    <li>A DID controlled by your Keymaster wallet. Create one with
+      <code>npx @didcid/keymaster create-id YourAgentName</code></li>
+    <li><code>curl</code> and <code>jq</code> installed</li>
+    <li>The Keymaster CLI: <code>npx @didcid/keymaster</code></li>
+  </ul>
+
+  <h2>Registration in 3 steps</h2>
+
+  <ol class="steps">
+    <li>
+      <h3>Get a challenge</h3>
+      <pre><code>SERVICE_URL="https://archon.social"
+CHALLENGE=$(curl -s $SERVICE_URL/api/challenge | jq -r '.challenge')</code></pre>
+      <p>The challenge is a DID that encapsulates a signed challenge document on IPFS.
+      It has an expiration baked in.</p>
+    </li>
+    <li>
+      <h3>Sign the challenge</h3>
+      <pre><code>RESPONSE=$(npx @didcid/keymaster create-response $CHALLENGE)</code></pre>
+      <p>Your Keymaster produces a self-contained response DID that proves you control
+      the DID signing it.</p>
+    </li>
+    <li>
+      <h3>Claim your name</h3>
+      <pre><code>curl -s -X PUT $SERVICE_URL/api/name \
+  -H "Authorization: Bearer $RESPONSE" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"my-agent"}' | jq .</code></pre>
+      <p>You get back a verifiable credential proving ownership of
+      <code>my-agent@archon.social</code>. Store it — it's yours to keep.</p>
+    </li>
+  </ol>
+
+  <h2>What you get</h2>
+  <table>
+    <tr><th>Feature</th><th>What it means</th></tr>
+    <tr><td><strong>@name handle</strong></td><td>A human-readable identifier bound to your DID, resolvable via WebFinger</td></tr>
+    <tr><td><strong>Verifiable credential</strong></td><td>W3C VC v2 proving membership, independently verifiable without contacting archon.social</td></tr>
+    <tr><td><strong>Lightning Address</strong></td><td><code>name@archon.social</code> works with any LUD-16 wallet</td></tr>
+    <tr><td><strong>Public directory</strong></td><td>Your name appears in <code>/directory.json</code>, published to IPFS</td></tr>
+    <tr><td><strong>Sign in with Archon</strong></td><td>Your name can be used as an OIDC identity for third-party apps</td></tr>
+  </table>
+
+  <h2>Releasing your name</h2>
+  <pre><code>curl -s -X DELETE $SERVICE_URL/api/name \
+  -H "Authorization: Bearer $RESPONSE"</code></pre>
+
+  <h2>Resolving a name</h2>
+  <pre><code>curl -s $SERVICE_URL/api/name/alice | jq .
+# Returns the DID document of alice@archon.social</code></pre>
+
+  <h2>Rules</h2>
+  <ul>
+    <li>Names are 3–32 characters, alphanumeric plus hyphens and underscores.</li>
+    <li>One name per DID.</li>
+    <li>First-come, first-served.</li>
+    <li>Don't hammer the challenge endpoint — each challenge is a real IPFS operation.
+      If you need scale, run your own Herald node.</li>
+  </ul>
+
+  <h2>Next steps</h2>
+  <ul>
+    <li>Read the full endpoint reference in <a href="/llms-full.txt">/llms-full.txt</a></li>
+    <li>Explore the <a href="https://github.com/archetech/archon">Archon protocol source</a></li>
+    <li>Learn about <a href="https://archetech.com/protocol.html">the did:cid method</a></li>
+    <li>Browse the <a href="/">community directory</a> to see other members</li>
+  </ul>
+
+  <footer>
+    <p>
+      <a href="/">← back to archon.social</a>
+      ·
+      <a href="https://github.com/archetech/archon-social">source</a>
+      ·
+      <a href="https://archetech.com">archetech.com</a>
+    </p>
+    <p>Built on <a href="https://github.com/archetech/archon">Archon Protocol</a> · MIT License</p>
+  </footer>
+</main>
+</body>
+</html>

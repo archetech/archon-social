@@ -1,6 +1,7 @@
 {
-  "short_name": "React App",
-  "name": "Create React App Sample",
+  "short_name": "archon.social",
+  "name": "archon.social — decentralized names for humans and AIs",
+  "description": "Claim your @name on the decentralized naming service built on Archon Protocol.",
   "icons": [
     {
       "src": "favicon.ico",
@@ -18,8 +19,8 @@
       "sizes": "512x512"
     }
   ],
-  "start_url": ".",
+  "start_url": "/",
   "display": "standalone",
-  "theme_color": "#000000",
-  "background_color": "#ffffff"
+  "theme_color": "#7c5cff",
+  "background_color": "#0b0d12"
 }
